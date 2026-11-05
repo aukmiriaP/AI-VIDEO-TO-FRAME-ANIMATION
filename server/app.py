@@ -15,10 +15,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, editing, exporting, imaging, pipeline, storage as store
+from . import analysis, editing, exporting, imaging, pipeline, replacing, storage as store
 from .normals import NormalSettings
 
-app = FastAPI(title="Frame Studio", version="0.5.0")
+app = FastAPI(title="Frame Studio", version="0.6.0")
 pool = ThreadPoolExecutor(max_workers=2)
 jobs: dict[str, dict] = {}
 busy: dict[str, str] = {}
@@ -89,7 +89,7 @@ def submit(pid, kind, work):
 
 @app.get("/api/health")
 def health():
-    return dict(ok=True, app="frame-studio", version="0.5.0", ai_ready=imaging.model_path(store.MODELS) is not None)
+    return dict(ok=True, app="frame-studio", version="0.6.0", ai_ready=imaging.model_path(store.MODELS) is not None)
 
 
 @app.post("/api/models/install")
@@ -237,8 +237,42 @@ class BrushRequest(BaseModel):
 
 @app.put("/api/projects/{pid}/frames/{index}/mask")
 def brush(pid: str, index: int, request: BrushRequest):
+    p = store.read(pid)
+    if 0 <= index < len(p["frames"]) and p["frames"][index].get("output_override"):
+        raise ValueError("成品覆盖帧请在外部修订，或先解除覆盖再使用遮罩画笔。")
     return submit(pid, "brush", lambda update, cancel: pipeline.process(
         pid, [index], None, False, update, cancel, [s.model_dump() for s in request.strokes]))
+
+
+@app.post("/api/projects/{pid}/frames/{index}/replace")
+async def replace_frame(pid: str, index: int, file: UploadFile = File(...),
+                        mode: Literal["source", "output"] = Form("source"),
+                        keep_strokes: bool = Form(False), expected_revision: int = Form(...),
+                        expected_frame_id: str = Form(...)):
+    data = bytearray()
+    try:
+        while chunk := await file.read(1024*1024):
+            data.extend(chunk)
+            if len(data) > 32*1024*1024:
+                raise ValueError("替换图片最多 32 MB")
+    finally:
+        await file.close()
+    store.read(pid)
+    return submit(pid, "replace", lambda update, cancel: replacing.replace(
+        pid, index, mode, bytes(data), file.filename or "替换图片", keep_strokes,
+        expected_revision, expected_frame_id, update, cancel))
+
+
+class ResetReplacementRequest(BaseModel):
+    expected_revision: int
+    expected_frame_id: str
+
+
+@app.post("/api/projects/{pid}/frames/{index}/replacement/reset")
+def reset_replacement(pid: str, index: int, request: ResetReplacementRequest):
+    return submit(pid, "replace", lambda update, cancel: replacing.replace(
+        pid, index, "reset", None, "", False, request.expected_revision,
+        request.expected_frame_id, update, cancel))
 
 
 class FramePatch(BaseModel):

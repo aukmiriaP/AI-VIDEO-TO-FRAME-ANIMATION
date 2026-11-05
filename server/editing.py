@@ -27,7 +27,7 @@ def owner(project, index):
 def base_signature(project, index):
     fr = project["frames"][index]
     settings = pipeline.frame_settings(project, index)
-    return imaging.fingerprint(fr["source_hash"], settings.model_dump(exclude={"colors","palette_mode","custom_palette"}),
+    return imaging.fingerprint(fr["source_hash"], fr.get("override_hash"), settings.model_dump(exclude={"colors","palette_mode","custom_palette"}),
                                fr["strokes"], project.get("asset_options", {}))
 
 

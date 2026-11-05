@@ -6,12 +6,14 @@ import { Aperture, ArrowDownToLine, ArrowLeftRight, ArrowRight, Check, ChevronLe
 import { api, json } from './api'
 import Stage from './Stage'
 import FrameControls from './FrameControls'
+import OnionControls, { onionFrames } from './OnionControls'
+import ReplaceFrame from './ReplaceFrame'
 import AnimationCheck from './AnimationCheck'
 import { AssetPanel, ExportDialog } from './Assets'
 import StyleControls, { STYLE_FIELDS } from './StyleControls'
 import LightingPanel from './LightingPanel'
 import { defaults, normalDefaults, lightDefaults } from './types'
-import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke, NormalSettings, Light, LightMode, LightingPair } from './types'
+import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke, NormalSettings, Light, LightMode, LightingPair, OnionOptions } from './types'
 import './style.css'
 import './animation.css'
 
@@ -45,10 +47,11 @@ export default function App() {
   const [light,setLight]=useState<Light>(lightDefaults)
   const [lightMode,setLightMode]=useState<LightMode>('off')
   const [normalPreview,setNormalPreview]=useState<LightingPair>()
+  const [onion,setOnion]=useState<OnionOptions>({enabled:false,before:1,after:1,opacity:.25,tint:true,wrap:false})
   const [brush, setBrush] = useState<'erase' | 'restore' | null>(null)
   const [radius, setRadius] = useState(.035)
   const [pending, setPending] = useState<Stroke[]>([])
-  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | null>(null)
+  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | 'replace' | null>(null)
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [name, setName] = useState('')
@@ -81,6 +84,7 @@ export default function App() {
   const lightingPlaybackReady = !!project && project.frames.every((f,i)=>
     !f.enabled || (action && (i<action.start || i>action.end)) || !!(f.normal_url&&f.output_url))
   const lightActive=lightMode!=='off'&&view==='result'
+  const ghosts=project?onionFrames(project,current,onion):[]
   const prefetch=project?.frames.slice(current+1,current+7).flatMap(f=>[f.output_url,f.normal_url].filter((s):s is string=>!!s))
   const normalBaseline=scope==='all'?project?.normal_settings:frame?.normal_settings||project?.normal_settings
   useEffect(()=>{
@@ -138,6 +142,7 @@ export default function App() {
             else if (j.kind === 'analysis') notify('检查完成，选择候选后可应用；素材尚未修改。')
             else if (j.kind === 'process' || j.kind === 'brush') notify(`已更新 ${j.result?.processed || 0} 帧，复用 ${j.result?.base_cached || 0} 次缓存。`)
             else if (j.kind === 'normals') notify(`已生成 ${j.result?.processed || 0} 帧法线，可切换实时打光并播放。`)
+            else if (j.kind === 'replace') notify(`单帧替换已保存，更新 ${j.result?.processed || 0} 帧及依赖，可撤销。`)
             else notify(j.kind === 'model' ? 'AI 抠图模型已就绪。' : '素材已就绪，可以开始编辑。')
           } else notify(j.message, j.state === 'failed')
           return
@@ -242,6 +247,26 @@ export default function App() {
       settings:normalDraft,indices:scope==='all'?null:selection,expected_revision:project.revision,
     }))
   }
+  function replaceFrame(file:File,mode:'source'|'output',keep:boolean){
+    if(!project||!frame)return
+    perform(async()=>{
+      const body=new FormData()
+      body.set('file',file);body.set('mode',mode);body.set('keep_strokes',String(keep))
+      body.set('expected_revision',String(project.revision));body.set('expected_frame_id',frame.id)
+      const result=await api<{job_id:string}>(`/projects/${project.id}/frames/${current}/replace`,{method:'POST',body})
+      setModal(null);setBrush(null);setPreview(undefined);setNormalPreview(undefined)
+      setJob(null);setJobId(result.job_id)
+    })
+  }
+  function resetReplacement(){
+    if(!project||!frame)return
+    perform(async()=>{
+      await begin(`/projects/${project.id}/frames/${current}/replacement/reset`,{
+        expected_revision:project.revision,expected_frame_id:frame.id,
+      })
+      setModal(null);setPreview(undefined);setNormalPreview(undefined)
+    })
+  }
   function toggleFrames() {
     if (!project) return
     const enabled = selection.some(i => !project.frames[i].enabled)
@@ -302,7 +327,7 @@ export default function App() {
   const empty = !project?.frames.length
   return <div className="app-shell">
     <header className="app-header">
-      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.5</span></a>
+      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.6</span></a>
       <div className="header-center"><span className="live-dot"/>本地工作空间<span className="slash">/</span><span>{project?.name || '新的创作，从这里开始'}</span></div>
       <div className="header-actions"><button className="icon-btn" title="使用说明" aria-label="使用说明" onClick={() => setModal('help')}><CircleHelp size={17}/></button>
         <button className="btn secondary" onClick={() => setModal('import')} disabled={busy}><Plus size={16}/>导入素材</button>
@@ -335,6 +360,8 @@ export default function App() {
           <div className="view-switch" role="group" aria-label="预览模式">{([['result','处理后'],['original','原始帧'],['compare','对照']] as const).map(([value,label]) =>
             <button key={value} className={view === value ? 'active' : ''} disabled={!!brush} onClick={() => {setView(value); setPlaying(false)}}>{value === 'compare' && <ArrowLeftRight size={13}/>} {label}</button>)}</div>
         </div>
+        {!empty&&<OnionControls options={onion} onChange={setOnion} disabled={busy}
+          suspended={playing||lightActive||view==='compare'} frames={ghosts}/>}
         <div className="canvas-area">
           {empty ? <div className="welcome">
             <div className="welcome-eyebrow"><span/> VIDEO TO GAME-READY FRAMES</div>
@@ -347,12 +374,13 @@ export default function App() {
             <div className="welcome-formats"><span>MP4 / MOV / WebM</span><i/><span>PNG 序列</span><i/><span>所有处理在本机进行</span></div>
           </div> : <>
             <div className="canvas-tools"><button className={`tool ${!brush ? 'active' : ''}`} aria-label="选择工具" title="选择工具" onClick={() => setBrush(null)}><MousePointer2 size={17}/></button>
-              <span/><button className={`tool ${brush === 'erase' ? 'active' : ''}`} disabled={busy || playing || !!preview || lightActive} aria-label="擦除背景画笔" title="擦除背景画笔" onClick={() => {setLightMode('off');setBrush('erase'); setView('result'); setPlaying(false)}}><Eraser size={17}/></button>
-              <button className={`tool ${brush === 'restore' ? 'active' : ''}`} disabled={busy || playing || !!preview || lightActive} aria-label="恢复前景画笔" title="恢复原始前景" onClick={() => {setLightMode('off');setBrush('restore'); setView('result'); setPlaying(false)}}><Paintbrush size={17}/></button>
+              <span/><button className={`tool ${brush === 'erase' ? 'active' : ''}`} disabled={busy || playing || !!preview || lightActive || !!frame?.output_override} aria-label="擦除背景画笔" title="擦除背景画笔" onClick={() => {setLightMode('off');setBrush('erase'); setView('result'); setPlaying(false)}}><Eraser size={17}/></button>
+              <button className={`tool ${brush === 'restore' ? 'active' : ''}`} disabled={busy || playing || !!preview || lightActive || !!frame?.output_override} aria-label="恢复前景画笔" title="恢复原始前景" onClick={() => {setLightMode('off');setBrush('restore'); setView('result'); setPlaying(false)}}><Paintbrush size={17}/></button>
               <span/><button className="tool" aria-label="适应画布" title="适应画布" onClick={() => setZoom(1)}><Maximize2 size={17}/></button></div>
             <Stage index={current} frame={frame!} settings={preview ? settings : frame?.settings || project!.settings} preview={preview?.url} previewGeometry={preview?.geometry} view={view} background={bg} zoom={zoom}
               light={light} lightingMode={lightMode} lightingPair={lightingPair} onLight={setLight} prefetch={prefetch}
               normalDraftPreview={!!normalPreview&&lightingPair===normalPreview}
+              onion={onion} onionFrames={ghosts}
               brush={brush} radius={radius} pending={pending} onStroke={s => setPending(a => [...a,s])} playing={playing}/>
             <div className="canvas-topline"><span>{project!.name}</span><span>{frame?.enabled ? '启用' : '已跳过'} <i/> {frame?.output_url ? '已处理' : '原始素材'}</span></div>
             <div className="canvas-bottomline"><div className="background-picker" aria-label="画布背景">{['checker','#141617','#f1eee7','#344f67'].map(color =>
@@ -382,6 +410,7 @@ export default function App() {
               <button disabled={empty || busy || !selection.length} onClick={() => {setModal('action');setActionFps(project!.fps)}}><Scissors size={14}/>切为动作</button>
               <button aria-label="切换时间轴大小" title="切换时间轴大小" onClick={() => setFilmstripSize(v => v === 'large' ? 'small' : 'large')}><Grid2X2 size={14}/></button></div></div>
           {!empty && <FrameControls project={project!} current={current} selection={selection} disabled={busy || !!pending.length}
+            onReplace={()=>{setPlaying(false);setModal('replace')}}
             onEdit={editFrames} onCheck={()=>{setPlaying(false);setModal('check')}}/>}
           <div className={`filmstrip ${filmstripSize}`}>
             {project?.frames.map((f,i) => <button key={f.id} className={`frame-tile ${selection.includes(i) ? 'selected' : ''} ${current === i ? 'current' : ''} ${!f.enabled ? 'excluded' : ''}`}
@@ -462,6 +491,8 @@ export default function App() {
     {loading && !jobId && <div className="loading-pill" role="status"><LoaderCircle size={16} className="spin"/>正在处理，请稍候…</div>}
     {toast && <div className={`toast ${toast.error ? 'error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <CircleHelp size={17}/> : <CheckCircle2 size={17}/>}<span>{toast.text}</span><button onClick={() => setToast(null)} aria-label="关闭通知"><X size={15}/></button></div>}
     {download && !jobId && <div className="download-card"><span className="export-icon"><Check size={20}/></span><div><b>动画资源已打包</b><small>PNG · 图集 · Godot 4 工程</small></div><a className="btn primary" href={download} download><Download size={15}/>下载 ZIP</a><button className="icon-btn" onClick={() => setDownload(undefined)} aria-label="关闭导出结果"><X size={15}/></button></div>}
+    {modal==='replace'&&project&&frame&&<ReplaceFrame project={project} current={current} busy={busy}
+      onClose={()=>setModal(null)} onReplace={replaceFrame} onReset={resetReplacement}/>}
     {modal === 'assets' && project && <AssetPanel project={project} current={current} selection={selection} busy={busy} onClose={()=>setModal(null)}
       onApply={body=>perform(async()=>{await begin(`/projects/${project.id}/process`,body);setModal(null);setPreview(undefined);setBrush(null)})}/>}
     {modal === 'export' && project && <ExportDialog project={project} busy={busy} onClose={()=>setModal(null)}

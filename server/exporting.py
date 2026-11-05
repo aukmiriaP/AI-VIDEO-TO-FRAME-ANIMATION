@@ -138,6 +138,8 @@ def export_project(pid, progress, cancel, options=None, expected_revision=None):
                                   source_time=project["frames"][index]["time"], file=frame_file,
                                   geometry=project["frames"][index]["geometry"],
                                   settings=project["frames"][index].get("settings") or project["settings"])
+            if project["frames"][index].get("replacement"):
+                mapping[index]["replacement"] = project["frames"][index]["replacement"]
             if normal_page is not None:
                 path = renderer.normal(index)
                 with Image.open(root / path) as raw:

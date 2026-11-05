@@ -45,6 +45,7 @@ export type Frame = {
   source_time: number; timeline_time: number
   settings: Settings | null; strokes: Stroke[]; label: string
   geometry?: Geometry; normal_url?: string; normal_settings?: NormalSettings
+  output_override?:string; replacement?:{mode:'source'|'output';filename:string;at:string}
 }
 export type Action = { id: string; name: string; start: number; end: number; fps: number; loop: boolean }
 export type Project = {
@@ -61,6 +62,8 @@ export type NormalSettings = { method: 'bevel' | 'luma' | 'mix'; strength: numbe
 export type LightingPair = Preview & { normal_url: string; frame_id: string; revision: number }
 export type Light = { x: number; y: number; height: number; intensity: number; range: number; ambient: number; color: string }
 export type LightMode = 'off' | 'lit' | 'normal'
+export type OnionOptions = { enabled:boolean; before:number; after:number; opacity:number; tint:boolean; wrap:boolean }
+export type OnionFrame = { index:number; frame:Frame; direction:'before'|'after'; distance:number }
 export const normalDefaults: NormalSettings = { method:'bevel', strength:2, bevel:6, smooth:1, detail:.35, invert:false, flip_y:false }
 export const lightDefaults: Light = { x:.3, y:.25, height:.3, intensity:1.5, range:2, ambient:.3, color:'#fff1df' }
 export type ProjectSummary = Pick<Project, 'id' | 'name' | 'style' | 'import_status'> & { frame_count: number; job_id?: string }

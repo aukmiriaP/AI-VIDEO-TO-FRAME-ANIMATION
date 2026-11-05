@@ -157,6 +157,12 @@ class Renderer:
         else:
             self.cached += 1
         fr["geometry"] = json.loads(meta.read_text())
+        if fr.get("output_override"):
+            with Image.open(self.root / fr["output_override"]) as image:
+                if image.size != tuple(fr["geometry"]["canvas"]):
+                    raise ValueError("成品覆盖帧尺寸与当前画布不匹配；请先解除成品覆盖，再修改画布或输出尺寸。")
+                override_key = img.fingerprint("override-base", fr["override_hash"], fr["geometry"]["canvas"])
+                return image.convert("RGBA"), override_key
         with Image.open(target) as image:
             return image.convert("RGBA"), key
 
@@ -185,6 +191,14 @@ class Renderer:
 
     def output(self, index):
         current, key = self.base(index)
+        frame = self.project["frames"][index]
+        if frame.get("output_override"):
+            thumb = f"thumbs/override-{frame['override_hash']}.png"
+            if not (self.root / thumb).exists():
+                img.thumbnail(current).save(self.root / thumb)
+            if frame.get("normal"):
+                self.normal(index)
+            return frame["output_override"], thumb
         settings = frame_settings(self.project, index)
         palette = self.project.get("palette") if settings.style == "pixel" else None
         ids = neighbor_ids(self.project, index) if settings.stabilize else []
@@ -313,6 +327,8 @@ def process(pid, indices, settings, rebuild, progress, cancel, strokes=None,
     if strokes is not None:
         if len(ids) != 1:
             raise ValueError("画笔修订只作用于当前帧")
+        if project["frames"][ids[0]].get("output_override"):
+            raise ValueError("请先解除成品覆盖再使用遮罩画笔。")
         project["frames"][ids[0]]["strokes"] = strokes
     renderer = Renderer(project, progress, cancel)
     renderer.palette(rebuild)

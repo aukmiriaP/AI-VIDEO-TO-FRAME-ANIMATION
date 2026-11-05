@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Frame, Geometry, Settings, Stroke, Light, LightMode, LightingPair } from './types'
+import type { Frame, Geometry, Settings, Stroke, Light, LightMode, LightingPair, OnionFrame, OnionOptions } from './types'
 import { LightingRenderer } from './lighting'
 
 type Props = {
@@ -10,10 +10,12 @@ type Props = {
   lightingMode:LightMode; light:Light; lightingPair?:LightingPair; onLight:(light:Light)=>void
   prefetch?:string[]
   normalDraftPreview?:boolean
+  onion:OnionOptions; onionFrames:OnionFrame[]
 }
 export default function Stage(p: Props) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const images = useRef<Map<string, HTMLImageElement>>(new Map())
+  const tints=useRef(new Map<string,HTMLCanvasElement>())
   const activeStroke = useRef<Stroke | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [wipe, setWipe] = useState(.5)
@@ -22,6 +24,7 @@ export default function Stage(p: Props) {
   const gpu = useRef<LightingRenderer | null>(null)
   const draggingLight = useRef(false)
   const lighting = p.view === 'result' && p.lightingMode !== 'off'
+  const onionVisible=p.onion.enabled&&!p.playing&&!lighting&&p.view!=='compare'
   const geometry = useRef({ x: 0, y: 0, w: 1, h: 1, cw: 1, ch: 1, sx: 1, sy: 1, dx: 0, dy: 0 })
   const invalidate = () => setTick(t => t + 1)
   useEffect(() => {
@@ -106,6 +109,36 @@ export default function Stage(p: Props) {
         ctx.beginPath(); ctx.moveTo(x+rect.w*wipe, y); ctx.lineTo(x+rect.w*wipe, y+rect.h); ctx.stroke()
       }
     }
+    if(onionVisible){
+      ctx.save();ctx.beginPath();ctx.rect(x,y,rect.w,rect.h);ctx.clip()
+      for(const ghost of p.onionFrames){
+        const src=originalView?ghost.frame.original_url:ghost.frame.output_url||ghost.frame.original_url
+        const image=get(src)
+        if(!image.complete||!image.naturalWidth)continue
+        let drawable:CanvasImageSource=image
+        if(p.onion.tint){
+          const key=src+ghost.direction
+          let tinted=tints.current.get(key)
+          if(!tinted){
+            tinted=document.createElement('canvas');tinted.width=image.naturalWidth;tinted.height=image.naturalHeight
+            const tc=tinted.getContext('2d')!
+            tc.drawImage(image,0,0);tc.globalCompositeOperation='source-in'
+            tc.fillStyle=ghost.direction==='before'?'#ec9c87':'#91c3d5';tc.fillRect(0,0,tinted.width,tinted.height)
+            tints.current.set(key,tinted)
+            if(tints.current.size>48)tints.current.delete(tints.current.keys().next().value!)
+          }
+          drawable=tinted
+        }
+        ctx.globalAlpha=p.onion.opacity/ghost.distance
+        // Ghosts use the same output coordinate origin and scale, never stretch to fit another frame.
+        if(!originalView&&!ghost.frame.output_url&&ghost.frame.geometry){
+          const g=ghost.frame.geometry
+          ctx.drawImage(drawable,x+g.offset[0]*scale,y+g.offset[1]*scale,
+            ghost.frame.width*g.scale[0]*scale,ghost.frame.height*g.scale[1]*scale)
+        }else ctx.drawImage(drawable,x,y,image.naturalWidth*scale,image.naturalHeight*scale)
+      }
+      ctx.restore()
+    }
     ctx.strokeStyle = '#6b71704d'; ctx.lineWidth = 1; ctx.strokeRect(x-.5, y-.5, rect.w+1, rect.h+1)
     if (!originalView && processed) {
       const pivot = meta?.pivot || [.5,.5]
@@ -143,7 +176,7 @@ export default function Stage(p: Props) {
         ctx.lineTo(lx+15*Math.cos(a),ly+15*Math.sin(a));ctx.stroke()
       }
     }
-  }, [p.frame, p.settings, p.preview, p.previewGeometry, p.view, p.background, p.zoom, p.pending, size, wipe, tick, get, lighting, p.lightingMode, p.lightingPair, p.light])
+  }, [p.frame, p.settings, p.preview, p.previewGeometry, p.view, p.background, p.zoom, p.pending, size, wipe, tick, get, lighting, p.lightingMode, p.lightingPair, p.light, p.onion, p.onionFrames, onionVisible])
 
   function point(e: React.PointerEvent): [number, number] {
     const r = canvas.current!.getBoundingClientRect(), g = geometry.current
@@ -165,7 +198,7 @@ export default function Stage(p: Props) {
         if(lighting && p.lightingMode==='lit'){
           e.currentTarget.setPointerCapture(e.pointerId);draggingLight.current=true;moveLight(e);return
         }
-        if(lighting)return
+        if(lighting||p.frame.output_override)return
         if (!p.brush || p.playing || p.view !== 'result') return
         const xy = point(e)
         if (xy.some(v => v < 0 || v > 1)) return
@@ -180,6 +213,8 @@ export default function Stage(p: Props) {
       }} onPointerUp={end} onPointerCancel={end} />
     <div className="stage-coordinate mono">FRAME {String(p.index+1).padStart(3, '0')} <span> / {p.settings.style === 'pixel' ? 'PIXEL' : 'RGBA'}</span></div>
     {p.preview && <span className="preview-flag">参数预览 · 尚未应用</span>}
+    {onionVisible&&p.onionFrames.length>0&&<span className="onion-legend"><span className="before">前帧 {p.onionFrames.filter(f=>f.direction==='before').map(f=>f.index+1).join('、')||'无'}</span><span className="after">后帧 {p.onionFrames.filter(f=>f.direction==='after').map(f=>f.index+1).join('、')||'无'}</span></span>}
+    {p.frame.output_override&&<span className="replacement-note">成品覆盖 · 参数不改变此帧 · 可在替换窗口解除</span>}
     {lighting&&p.normalDraftPreview&&<span className="preview-flag">法线预览 · 尚未应用</span>}
     {lighting&&!p.lightingPair&&<span className="light-canvas-message">点击「预览法线」或「生成法线」查看效果</span>}
     {lighting&&p.lightingMode==='lit'&&lightError&&<span className="light-canvas-message" role="alert">{lightError}</span>}
