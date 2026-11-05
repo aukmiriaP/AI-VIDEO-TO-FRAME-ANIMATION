@@ -5,15 +5,16 @@ import hashlib
 import json
 import threading
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Image.MAX_IMAGE_PIXELS = 20_000_000
-ENGINE_VERSION = 2
+ENGINE_VERSION = 3
+BASE_EXCLUDE = {"stabilize", "colors", "palette_mode", "custom_palette", "palette_distance", "dither_strength"}
 _ai_lock = threading.Lock()
 _ai_session = None
 
@@ -46,6 +47,27 @@ class Settings(BaseModel):
     matte_feather: float = Field(default=0, ge=0, le=5, allow_inf_nan=False)
     edge_cleanup: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     speck_area: int = Field(default=0, ge=0, le=400)
+    pixel_sampling: Literal["nearest", "area", "majority"] = "nearest"
+    pixel_cell: int = Field(default=1, ge=1, le=8)
+    palette_mode: Literal["auto", "custom"] = "auto"
+    custom_palette: list[Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]] = Field(default_factory=list, max_length=64)
+    palette_distance: Literal["rgb", "lab"] = "rgb"
+    dither_strength: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    saturation: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
+    contrast: float = Field(default=1, ge=.5, le=2, allow_inf_nan=False)
+    brightness: float = Field(default=0, ge=-.5, le=.5, allow_inf_nan=False)
+    smooth_strength: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    smooth_levels: int = Field(default=0, ge=0, le=16)
+    outline_width: int = Field(default=0, ge=0, le=6)
+    outline_color: str = Field(default="#202638", pattern=r"^#[0-9a-fA-F]{6}$")
+
+    @model_validator(mode="after")
+    def style_options(self):
+        if self.palette_mode == "custom" and not self.custom_palette:
+            raise ValueError("自定义色板至少需要一个 #RRGGBB 颜色。")
+        if self.smooth_levels == 1:
+            raise ValueError("颜色分层请设为 0（关闭）或 2–16 层。")
+        return self
 
 
 class AssetOptions(BaseModel):
@@ -189,11 +211,13 @@ def canvas_size(source_size, settings: Settings, options: AssetOptions):
 
 def prepare_geometry(source: Image.Image, settings: Settings, strokes: list[dict],
                      model_dir: Path, options: AssetOptions):
+    from . import styling
     result = refine_matte(remove_background(source, settings, model_dir), source, settings)
     result = brush_alpha(result, source, strokes)
-    result = resize_rgba(result, fit_size(source.size, settings.size), settings.style == "pixel")
-    scaled = resize_rgba(result, (max(1, round(result.width*settings.scale)),
-                                  max(1, round(result.height*settings.scale))), settings.style == "pixel")
+    resize = (lambda im, size: styling.sample_rgba(im, size, settings.pixel_sampling)) if settings.style == "pixel" else resize_rgba
+    result = resize(result, fit_size(source.size, settings.size))
+    scaled = resize(result, (max(1, round(result.width*settings.scale)),
+                             max(1, round(result.height*settings.scale))))
     if settings.style == "pixel":
         arr = np.array(scaled)
         arr[..., 3] = np.where(arr[..., 3] >= settings.alpha_cutoff, 255, 0)
@@ -219,6 +243,8 @@ def prepare_geometry(source: Image.Image, settings: Settings, strokes: list[dict
         warnings.append(f"主体超出画布，{clipped} 个可见像素会被裁切。")
     canvas = Image.new("RGBA", (w, h))
     canvas.alpha_composite(scaled, (dx, dy))
+    canvas, style_warnings = styling.base_style(canvas, settings)
+    warnings.extend(style_warnings)
     bbox = canvas.getchannel("A").getbbox()
     geometry = dict(canvas=[w, h], source=list(source.size), scaled=list(scaled.size),
                     scale=[scaled.width/source.width, scaled.height/source.height],
@@ -249,16 +275,9 @@ def make_palette(images: list[Image.Image], colors: int) -> list[list[int]]:
     return [table[index].tolist() for _, index in used]
 
 
-def quantize(image: Image.Image, palette: list[list[int]]) -> Image.Image:
-    arr = np.array(image)
-    flat = arr[..., :3].reshape(-1, 3).astype(np.float32)
-    colors = np.asarray(palette, np.float32)
-    for start in range(0, len(flat), 16384):
-        block = flat[start:start+16384]
-        nearest = ((block[:, None] - colors[None]) ** 2).sum(-1).argmin(-1)
-        flat[start:start+len(block)] = colors[nearest]
-    arr[..., :3] = flat.reshape(arr.shape[:2] + (3,)).astype(np.uint8)
-    return Image.fromarray(arr)
+def quantize(image: Image.Image, palette: list[list[int]], settings: Settings | None = None) -> Image.Image:
+    from .styling import palette_map
+    return palette_map(image, palette, settings or Settings())
 
 
 def temporal(current: Image.Image, neighbors: list[Image.Image], settings: Settings,

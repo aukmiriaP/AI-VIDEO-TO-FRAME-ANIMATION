@@ -8,6 +8,7 @@ import Stage from './Stage'
 import FrameControls from './FrameControls'
 import AnimationCheck from './AnimationCheck'
 import { AssetPanel, ExportDialog } from './Assets'
+import StyleControls, { STYLE_FIELDS } from './StyleControls'
 import { defaults } from './types'
 import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke } from './types'
 import './style.css'
@@ -167,6 +168,18 @@ export default function App() {
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     setPlaying(false); setPreview(undefined); setSettings(s => ({...s, [key]: value}))
   }
+  function styleChange(patch:Partial<Settings>,global=false){
+    setPlaying(false);setPreview(undefined)
+    setSettings(s=>({...((global&&scope==='selection'&&project)?{
+      ...project.settings,...Object.fromEntries(STYLE_FIELDS.map(k=>[k,s[k]])),
+    }:s),...patch}))
+    if(global)setScope('all')
+  }
+  function settingsPatch(){
+    const baseline=scope==='all'?project?.settings:frame?.settings||project?.settings
+    return Object.fromEntries(Object.entries(settings).filter(([k,v])=>
+      JSON.stringify(v)!==JSON.stringify(baseline?.[k as keyof Settings])))
+  }
   async function perform(fn: () => Promise<void>) {
     setLoading(true); setPlaying(false)
     try { await fn() } catch (e) { notify((e as Error).message, true) } finally { setLoading(false) }
@@ -178,7 +191,8 @@ export default function App() {
   }
   function apply(rebuild = false) {
     if (!project) return
-    perform(() => begin(`/projects/${project.id}/process`, {indices: scope === 'all' || rebuild ? null : selection, settings, rebuild_palette: rebuild}))
+    perform(() => begin(`/projects/${project.id}/process`, {indices: scope === 'all' || rebuild ? null : selection,
+      settings_patch:settingsPatch(),rebuild_palette: rebuild,expected_revision:project.revision}))
   }
   function toggleFrames() {
     if (!project) return
@@ -240,7 +254,7 @@ export default function App() {
   const empty = !project?.frames.length
   return <div className="app-shell">
     <header className="app-header">
-      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.3</span></a>
+      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.4</span></a>
       <div className="header-center"><span className="live-dot"/>本地工作空间<span className="slash">/</span><span>{project?.name || '新的创作，从这里开始'}</span></div>
       <div className="header-actions"><button className="icon-btn" title="使用说明" aria-label="使用说明" onClick={() => setModal('help')}><CircleHelp size={17}/></button>
         <button className="btn secondary" onClick={() => setModal('import')} disabled={busy}><Plus size={16}/>导入素材</button>
@@ -338,10 +352,14 @@ export default function App() {
           onClick={() => perform(async () => { const p = await api<Project>(`/projects/${project!.id}/undo`,json());await acceptEdit(p) })}><RotateCcw size={16}/></button></div>
         <div className="inspector-scroll">
           <section className="inspector-section style-section"><div className="section-title"><span className="step-number">01</span><h2>输出风格</h2></div>
-            <div className="style-options"><button className={settings.style === 'smooth' ? 'active' : ''} disabled={busy} onClick={() => {setSettings(s => ({...s,style:'smooth',size:384}));setScope('all');setPreview(undefined)}}><span className="smooth-icon"/><b>非像素</b><small>保留线条与渐变</small>{settings.style === 'smooth' && <Check size={12}/>}</button>
-              <button className={settings.style === 'pixel' ? 'active' : ''} disabled={busy} onClick={() => {setSettings(s => ({...s,style:'pixel',size:128}));setScope('all');setPreview(undefined)}}><Grid2X2 size={20}/><b>像素风</b><small>网格与共用色板</small>{settings.style === 'pixel' && <Check size={12}/>}</button></div>
-            <label className="select-row">输出长边<select aria-label="输出长边" value={settings.size} disabled={busy} onChange={e => {set('size',+e.target.value);setScope('all')}}>{[64,96,128,192,256,384,512,768,1024].map(n => <option key={n} value={n}>{n} px</option>)}</select></label>
-            <p className="hint">保持原始比例；风格与尺寸应用到全部帧。</p></section>
+            <div className="style-options"><button className={settings.style === 'smooth' ? 'active' : ''} disabled={busy} onClick={() => styleChange({style:'smooth',size:384},true)}><span className="smooth-icon"/><b>非像素</b><small>保留线条与渐变</small>{settings.style === 'smooth' && <Check size={12}/>}</button>
+              <button className={settings.style === 'pixel' ? 'active' : ''} disabled={busy} onClick={() => styleChange({style:'pixel',size:128},true)}><Grid2X2 size={20}/><b>像素风</b><small>网格与共用色板</small>{settings.style === 'pixel' && <Check size={12}/>}</button></div>
+            <label className="select-row">输出长边<select aria-label="输出长边" value={settings.size} disabled={busy} onChange={e => styleChange({size:+e.target.value},true)}>{[64,96,128,192,256,384,512,768,1024].map(n => <option key={n} value={n}>{n} px</option>)}</select></label>
+            <p className="hint">保持原始比例；风格与尺寸应用到全部帧。</p>
+            <StyleControls settings={settings} palette={project?.palette||null} disabled={busy||empty||!!pending.length}
+              onChange={styleChange}
+              onPreset={patch=>{styleChange(patch,patch.palette_mode!==undefined||patch.custom_palette!==undefined);notify('风格预设已填入，预览或应用后生效。')}}/>
+          </section>
           <section className="inspector-section"><div className="section-title"><span className="step-number">02</span><h2>背景与透明度</h2><span className="section-tag">ALPHA</span></div>
             <div className="segmented">{([['keep','保留'],['chroma','色键'],['ai','AI 抠图']] as const).map(([v,l]) => <button key={v} disabled={busy} className={settings.background === v ? 'active' : ''} onClick={() => set('background',v)}>{l}</button>)}</div>
             {settings.background === 'keep' ? <p className="hint block-hint">保留素材原有透明度。已有透明 PNG 可直接编辑与导出。</p> : settings.background === 'chroma' ? <>
@@ -361,9 +379,10 @@ export default function App() {
             </details>
           </section>
           <section className="inspector-section"><div className="section-title"><span className="step-number">03</span><h2>序列一致性</h2></div>
-            {settings.style === 'pixel' && <><label className="select-row">共用色板<select aria-label="色板颜色数" value={settings.colors} onChange={e => {set('colors',+e.target.value);setScope('all')}}>{[8,12,16,24,32,48,64].map(n => <option key={n} value={n}>{n} 色</option>)}</select></label>
+            {settings.style === 'pixel' && <><label className="select-row">{settings.palette_mode==='custom'?'固定色板':'共用色板'}<select aria-label="色板颜色数" value={settings.palette_mode==='custom'?settings.custom_palette.length:settings.colors} disabled={busy||settings.palette_mode==='custom'} onChange={e => styleChange({colors:+e.target.value},true)}>{(settings.palette_mode==='custom'?[settings.custom_palette.length]:[8,12,16,24,32,48,64]).map(n => <option key={n} value={n}>{n} 色</option>)}</select></label>
               {project?.palette && <div className="palette">{project.palette.map((c,i) => <span key={i} style={{background:`rgb(${c.join(',')})`}} title={c.join(', ')}/>)}</div>}
-              <button className="subtle-link" disabled={busy || empty} onClick={() => {setScope('all');apply(true)}}><RotateCcw size={12}/>重新提取全序列色板</button></>}
+              <button className="subtle-link" disabled={busy || empty||settings.palette_mode==='custom'} onClick={() => {setScope('all');apply(true)}}><RotateCcw size={12}/>重新提取全序列色板</button>
+              <p className="hint">{settings.palette_mode==='custom'?`固定 ${settings.custom_palette.length} 色；修改色板需应用到全部帧。`:'提取色板会锁定；调色后需要新的颜色时可重新提取。'}</p></>}
             <Slider label="帧间稳定强度" min={0} max={.6} step={.05} value={settings.stabilize} onChange={v => set('stabilize',v)}/>
             <p className="hint">{settings.style === 'smooth' ? '通过运动对应减少颜色闪烁，保留当前帧轮廓。快速运动建议低强度。' : '在相近颜色之间稳定变化，输出仍约束在同一色板内。'}</p>
           </section>
@@ -376,7 +395,7 @@ export default function App() {
         </div>
         <div className="apply-panel"><label className="select-row"><span>应用范围</span><select aria-label="应用范围" value={scope} disabled={busy || !!pending.length} onChange={e => {const v = e.target.value as 'all' | 'selection';setScope(v);if(project)setSettings(v === 'all' ? project.settings : frame?.settings || project.settings);setPreview(undefined)}}>
           <option value="all">全部 {project?.frames.length || 0} 帧</option><option value="selection">选中 {selection.length} 帧</option></select></label>
-          <div className="apply-buttons"><button className="btn secondary" disabled={empty || busy || !!pending.length || (scope === 'selection' && (!selection.length || !selection.includes(current)))} onClick={() => perform(async () => {const r = await api<Preview>(`/projects/${project!.id}/preview`,json({index:current,settings,indices:scope === 'all' ? null : selection}));setPreview(r);setView('result');setBrush(null)})}><EyeOff size={14} className="preview-eye"/>预览当前帧</button>
+          <div className="apply-buttons"><button className="btn secondary" disabled={empty || busy || !!pending.length || (scope === 'selection' && (!selection.length || !selection.includes(current)))} onClick={() => perform(async () => {const r = await api<Preview>(`/projects/${project!.id}/preview`,json({index:current,settings_patch:settingsPatch(),indices:scope === 'all' ? null : selection,expected_revision:project!.revision}));setPreview(r);setView('result');setBrush(null)})}><EyeOff size={14} className="preview-eye"/>预览当前帧</button>
             <button className="btn primary" disabled={empty || busy || !!pending.length || (scope === 'selection' && !selection.length)} onClick={() => apply()}><WandSparkles size={15}/>应用</button></div>
           <div className="apply-note">{changed ? <><span className="unsaved-dot"/>有参数待应用</> : <><CheckCircle2 size={12}/>原始素材始终保留</>}</div>
         </div>

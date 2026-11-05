@@ -18,6 +18,19 @@ export type Settings = {
   matte_feather: number
   edge_cleanup: number
   speck_area: number
+  pixel_sampling: 'nearest' | 'area' | 'majority'
+  pixel_cell: number
+  palette_mode: 'auto' | 'custom'
+  custom_palette: string[]
+  palette_distance: 'rgb' | 'lab'
+  dither_strength: number
+  saturation: number
+  contrast: number
+  brightness: number
+  smooth_strength: number
+  smooth_levels: number
+  outline_width: number
+  outline_color: string
 }
 export type AssetEdits = Pick<Settings, 'align_mode' | 'bounds_threshold' | 'matte_grow' | 'matte_feather' | 'edge_cleanup' | 'speck_area'>
 export type AssetOptions = { canvas_width: number; canvas_height: number; pivot_x: number; pivot_y: number }
@@ -65,4 +78,6 @@ export const defaults: Settings = {
   style: 'smooth', background: 'keep', key_color: '#36b859', tolerance: 35, softness: 20, despill: .5,
   size: 384, colors: 24, alpha_cutoff: 128, stabilize: 0, offset_x: 0, offset_y: 0, scale: 1,
   align_mode: 'none', bounds_threshold: 16, matte_grow: 0, matte_feather: 0, edge_cleanup: 0, speck_area: 0,
+  pixel_sampling:'nearest',pixel_cell:1,palette_mode:'auto',custom_palette:[],palette_distance:'rgb',dither_strength:0,
+  saturation:1,contrast:1,brightness:0,smooth_strength:0,smooth_levels:0,outline_width:0,outline_color:'#202638',
 }

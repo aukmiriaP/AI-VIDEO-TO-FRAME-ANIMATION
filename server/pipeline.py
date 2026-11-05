@@ -141,7 +141,7 @@ class Renderer:
             raise InterruptedError("已取消处理，保留上一版结果")
         fr = self.project["frames"][index]
         settings = frame_settings(self.project, index)
-        stage = settings.model_dump(exclude={"stabilize", "colors"})
+        stage = settings.model_dump(exclude=img.BASE_EXCLUDE)
         options = img.AssetOptions(**self.project.get("asset_options", {}))
         key = img.fingerprint("base", fr["source_hash"], stage, fr["strokes"], options.model_dump())
         target = self.root / "derived" / f"base-{key}.png"
@@ -162,12 +162,19 @@ class Renderer:
     def palette(self, rebuild=False):
         if self.project["style"] != "pixel":
             return
-        colors = self.project["settings"]["colors"]
+        options = img.Settings(**self.project["settings"])
+        if options.palette_mode == "custom":
+            self.project["palette"] = [[int(c[i:i+2],16) for i in (1,3,5)] for c in options.custom_palette]
+            self.project["palette_colors"] = len(self.project["palette"])
+            return
+        colors = options.colors
         if self.project.get("palette") and not rebuild and self.project.get("palette_colors") == colors:
             return
         # Sample evenly over the whole sequence; lock until explicitly rebuilt.
-        indices = np.unique(np.linspace(0, len(self.project["frames"])-1,
-                                        min(32, len(self.project["frames"]))).astype(int))
+        enabled = [i for i,f in enumerate(self.project["frames"]) if f["enabled"]]
+        if not enabled:
+            raise ValueError("没有启用帧，无法提取色板")
+        indices = [enabled[i] for i in np.unique(np.linspace(0,len(enabled)-1,min(32,len(enabled))).astype(int))]
         images = []
         for n, i in enumerate(indices):
             self.progress(n/max(1, len(indices))*.25, "正在建立全序列共用色板")
@@ -182,32 +189,49 @@ class Renderer:
         ids = neighbor_ids(self.project, index) if settings.stabilize else []
         neighbors = [self.base(i) for i in ids]
         final_key = img.fingerprint("output", key, [k for _, k in neighbors], palette,
-                                    settings.stabilize, settings.style)
+                                    settings.stabilize, settings.style,settings.palette_distance,settings.dither_strength)
         relative = f"derived/out-{final_key}.png"
         target = self.root / relative
         if not target.exists():
+            # Stabilize continuous colors, then quantize/dither exactly once.
+            result = img.temporal(current, [im for im, _ in neighbors], settings, None)
             if palette:
-                current = img.quantize(current, palette)
-                neighbors = [(img.quantize(im, palette), key) for im, key in neighbors]
-            result = img.temporal(current, [im for im, _ in neighbors], settings, palette)
+                result = img.quantize(result,palette,settings)
             result.save(target)
             img.thumbnail(result).save(self.root / "thumbs" / f"{final_key}.png")
         return relative, f"thumbs/{final_key}.png"
 
 
-def configure(project, ids, settings, asset_options=None, asset_patch=None):
+def configure(project, ids, settings, asset_options=None, asset_patch=None, settings_patch=None):
     all_frames = len(ids) == len(project["frames"])
     if asset_options is not None and asset_options.model_dump() != project.get("asset_options", {}):
         if not all_frames:
             raise ValueError("画布与锚点属于序列设置，请选择「全部帧」应用。")
         project["asset_options"] = asset_options.model_dump()
+    global_keys = ("style","size","colors","palette_mode","custom_palette")
+    if settings is not None and settings_patch is not None:
+        raise ValueError("完整设置与参数补丁不能同时提交")
+    if settings_patch is not None:
+        if set(settings_patch)-set(img.Settings.model_fields):
+            raise ValueError("参数补丁包含未知字段")
+        next_settings = img.Settings(**(project["settings"]|settings_patch))
+        if not all_frames and any(getattr(next_settings,k)!=project["settings"][k] for k in global_keys):
+            raise ValueError("风格、输出尺寸和色板属于序列设置，请选择「全部帧」应用。")
+        for i in ids:
+            original = frame_settings(project,i).model_dump()
+            project["frames"][i]["settings"] = img.Settings(**(original|settings_patch)).model_dump()
+        if all_frames:
+            if any(getattr(next_settings,k)!=project["settings"][k] for k in global_keys if k!="size"):
+                project["palette"] = None
+            project["settings"] = next_settings.model_dump()
+            project["style"] = next_settings.style
     if settings:
-        if not all_frames and any(getattr(settings, k) != project["settings"][k] for k in ("style", "size", "colors")):
-            raise ValueError("风格、输出尺寸和色板颜色数属于序列设置，请选择「全部帧」应用。")
+        if not all_frames and any(getattr(settings, k) != project["settings"][k] for k in global_keys):
+            raise ValueError("风格、输出尺寸和色板属于序列设置，请选择「全部帧」应用。")
         for i in ids:
             project["frames"][i]["settings"] = settings.model_dump()
         if all_frames:
-            if settings.style != project["style"] or settings.colors != project["settings"]["colors"]:
+            if any(getattr(settings,k) != project["settings"][k] for k in global_keys if k != "size"):
                 project["palette"] = None
             project["style"] = settings.style
             project["settings"] = settings.model_dump()
@@ -220,14 +244,14 @@ def configure(project, ids, settings, asset_options=None, asset_patch=None):
 
 
 def process(pid, indices, settings, rebuild, progress, cancel, strokes=None,
-            asset_options=None, asset_patch=None):
+            asset_options=None, asset_patch=None, settings_patch=None):
     project = store.read(pid)
     store.checkpoint(project)
     count = len(project["frames"])
     ids = sorted(set(range(count) if indices is None else indices))
     if not ids or any(i < 0 or i >= count for i in ids):
         raise ValueError("请选择有效的帧范围")
-    configure(project, ids, settings, asset_options, asset_patch)
+    configure(project, ids, settings, asset_options, asset_patch, settings_patch)
     if strokes is not None:
         if len(ids) != 1:
             raise ValueError("画笔修订只作用于当前帧")
@@ -251,7 +275,7 @@ def process(pid, indices, settings, rebuild, progress, cancel, strokes=None,
     return project["last_run"]
 
 
-def preview(pid, index, settings, indices=None, asset_options=None, asset_patch=None):
+def preview(pid, index, settings, indices=None, asset_options=None, asset_patch=None, settings_patch=None):
     project = copy.deepcopy(store.read(pid))
     count = len(project["frames"])
     if not 0 <= index < count:
@@ -261,7 +285,7 @@ def preview(pid, index, settings, indices=None, asset_options=None, asset_patch=
         raise ValueError("请选择有效的帧范围")
     if index not in ids:
         raise ValueError("当前预览帧不在所选范围内")
-    configure(project, ids, settings, asset_options, asset_patch)
+    configure(project, ids, settings, asset_options, asset_patch, settings_patch)
     renderer = Renderer(project)
     renderer.palette()
     path, _ = renderer.output(index)

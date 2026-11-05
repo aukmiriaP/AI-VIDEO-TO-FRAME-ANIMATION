@@ -8,7 +8,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from . import analysis, editing, exporting, imaging, pipeline, storage as store
 
-app = FastAPI(title="Frame Studio", version="0.3.0")
+app = FastAPI(title="Frame Studio", version="0.4.0")
 pool = ThreadPoolExecutor(max_workers=2)
 jobs: dict[str, dict] = {}
 busy: dict[str, str] = {}
@@ -88,7 +88,7 @@ def submit(pid, kind, work):
 
 @app.get("/api/health")
 def health():
-    return dict(ok=True, app="frame-studio", version="0.3.0", ai_ready=imaging.model_path(store.MODELS) is not None)
+    return dict(ok=True, app="frame-studio", version="0.4.0", ai_ready=imaging.model_path(store.MODELS) is not None)
 
 
 @app.post("/api/models/install")
@@ -188,6 +188,7 @@ class ProcessRequest(BaseModel):
     asset_options: imaging.AssetOptions | None = None
     asset_patch: imaging.AssetEdits | None = None
     expected_revision: int | None = None
+    settings_patch: dict[str,Any] | None = Field(default=None,max_length=64)
 
 
 @app.post("/api/projects/{pid}/process")
@@ -197,7 +198,8 @@ def process(pid: str, request: ProcessRequest):
         if request.expected_revision is not None:
             editing.check_revision(store.read(pid), request.expected_revision)
         return pipeline.process(pid, request.indices, request.settings, request.rebuild_palette,
-                                update, cancel, asset_options=request.asset_options, asset_patch=request.asset_patch)
+                                update, cancel, asset_options=request.asset_options, asset_patch=request.asset_patch,
+                                settings_patch=request.settings_patch)
     return submit(pid, "process", work)
 
 
@@ -208,6 +210,7 @@ class PreviewRequest(BaseModel):
     asset_options: imaging.AssetOptions | None = None
     asset_patch: imaging.AssetEdits | None = None
     expected_revision: int | None = None
+    settings_patch: dict[str,Any] | None = Field(default=None,max_length=64)
 
 
 @app.post("/api/projects/{pid}/preview")
@@ -220,7 +223,7 @@ def preview(pid: str, request: PreviewRequest):
         if request.expected_revision is not None:
             editing.check_revision(store.read(pid), request.expected_revision)
         path, geometry = pipeline.preview(pid, request.index, request.settings, request.indices,
-                                          request.asset_options, request.asset_patch)
+                                          request.asset_options, request.asset_patch, request.settings_patch)
         return {"url": f"/media/{pid}/{path}", "geometry": geometry}
     finally:
         with jobs_lock:
