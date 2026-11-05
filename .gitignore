@@ -1,0 +1,14 @@
+.venv/
+node_modules/
+web/dist/
+data/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.asset-verification-*/
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
