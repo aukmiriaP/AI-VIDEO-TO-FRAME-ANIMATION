@@ -59,6 +59,7 @@ def replace(pid, index, mode: Literal["source", "output", "reset"], data, filena
             frame.pop("override_hash", None)
             if not keep_strokes:
                 frame["strokes"] = []
+                frame.pop("mask_corrections", None)
         else:
             frame.update(output_override=relative, override_hash=digest)
         frame["replacement"] = dict(mode=mode, filename=filename[:200], at=store.now())

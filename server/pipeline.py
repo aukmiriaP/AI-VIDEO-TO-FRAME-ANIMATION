@@ -145,12 +145,19 @@ class Renderer:
         stage = settings.model_dump(exclude=img.BASE_EXCLUDE)
         options = img.AssetOptions(**self.project.get("asset_options", {}))
         key = img.fingerprint("base", fr["source_hash"], stage, fr["strokes"], options.model_dump())
+        layers = fr.get("mask_corrections", [])
+        if layers:
+            key = img.fingerprint("corrected-base", key, [layer["hash"] for layer in layers])
         target = self.root / "derived" / f"base-{key}.png"
         meta = target.with_suffix(".json")
         if not target.exists() or not meta.exists():
             with Image.open(self.root / fr["original"]) as source:
+                corrections = []
+                for layer in layers:
+                    with Image.open(self.root / layer["path"]) as image:
+                        corrections.append(image.convert("RGBA"))
                 result, geometry = img.prepare_geometry(source.convert("RGBA"), settings, fr["strokes"],
-                                                        store.MODELS, options)
+                                                        store.MODELS, options, corrections)
                 result.save(target)
                 meta.write_text(json.dumps(geometry))
             self.rendered += 1

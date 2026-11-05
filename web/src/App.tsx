@@ -8,12 +8,13 @@ import Stage from './Stage'
 import FrameControls from './FrameControls'
 import OnionControls, { onionFrames } from './OnionControls'
 import ReplaceFrame from './ReplaceFrame'
+import PropagationDialog from './PropagationDialog'
 import AnimationCheck from './AnimationCheck'
 import { AssetPanel, ExportDialog } from './Assets'
 import StyleControls, { STYLE_FIELDS } from './StyleControls'
 import LightingPanel from './LightingPanel'
 import { defaults, normalDefaults, lightDefaults } from './types'
-import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke, NormalSettings, Light, LightMode, LightingPair, OnionOptions } from './types'
+import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke, NormalSettings, Light, LightMode, LightingPair, OnionOptions, PropagationReport } from './types'
 import './style.css'
 import './animation.css'
 
@@ -51,8 +52,10 @@ export default function App() {
   const [brush, setBrush] = useState<'erase' | 'restore' | null>(null)
   const [radius, setRadius] = useState(.035)
   const [pending, setPending] = useState<Stroke[]>([])
-  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | 'replace' | null>(null)
+  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | 'replace' | 'propagate' | null>(null)
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null)
+  const [propagationReport,setPropagationReport]=useState<PropagationReport|null>(null)
+  const activePropagation=propagationReport?.project_id===project?.id&&propagationReport?.revision===project?.revision&&propagationReport?.donor_frame_id===project?.frames[current]?.id?propagationReport:null
   const [files, setFiles] = useState<File[]>([])
   const [name, setName] = useState('')
   const [importFps, setImportFps] = useState(12)
@@ -127,6 +130,8 @@ export default function App() {
           setJobId(null)
           if (j.kind === 'analysis') {
             if (j.state === 'done') setAnalysisReport(j.result?.analysis || null)
+          } else if (j.kind === 'propagation-preview') {
+            if (j.state === 'done') setPropagationReport(j.result?.propagation||null)
           } else if (j.project_id !== '_model') {
             const old = projectRef.current
             const p = await loadProject(j.project_id, !old || old.id !== j.project_id || j.kind === 'import')
@@ -143,6 +148,8 @@ export default function App() {
             else if (j.kind === 'process' || j.kind === 'brush') notify(`已更新 ${j.result?.processed || 0} 帧，复用 ${j.result?.base_cached || 0} 次缓存。`)
             else if (j.kind === 'normals') notify(`已生成 ${j.result?.processed || 0} 帧法线，可切换实时打光并播放。`)
             else if (j.kind === 'replace') notify(`单帧替换已保存，更新 ${j.result?.processed || 0} 帧及依赖，可撤销。`)
+            else if (j.kind === 'propagation-preview') notify('传播预览完成，检查并勾选要应用的帧。')
+            else if (j.kind === 'propagation') notify(`遮罩修订已保存，更新 ${j.result?.processed || 0} 帧及依赖，可撤销。`)
             else notify(j.kind === 'model' ? 'AI 抠图模型已就绪。' : '素材已就绪，可以开始编辑。')
           } else notify(j.message, j.state === 'failed')
           return
@@ -274,6 +281,30 @@ export default function App() {
       setProject(await api<Project>(`/projects/${project.id}/frames`, json({indices: selection, enabled}, 'PATCH')))
     })
   }
+  function previewPropagation(indices:number[],confidence:number){
+    if(!project||!frame)return
+    perform(()=>begin(`/projects/${project.id}/mask-propagation/preview`,{
+      donor_index:current,donor_frame_id:frame.id,indices,confidence,expected_revision:project.revision,
+    }))
+  }
+  function applyPropagation(indices:number[]){
+    if(!project||!activePropagation)return
+    perform(async()=>{
+      await begin(`/projects/${project.id}/mask-propagation/apply`,{
+        report_id:activePropagation.id,indices,expected_revision:project.revision,
+      })
+      setModal(null);setPreview(undefined);setNormalPreview(undefined);setBrush(null)
+    })
+  }
+  function clearPropagation(){
+    if(!project||!frame)return
+    perform(async()=>{
+      await begin(`/projects/${project.id}/frames/${current}/mask-propagation/clear`,{
+        expected_revision:project.revision,expected_frame_id:frame.id,
+      })
+      setModal(null);setPreview(undefined);setNormalPreview(undefined)
+    })
+  }
   async function acceptEdit(p: Project) {
     const old = projectRef.current
     const oldIds = old ? selection.map(i => old.frames[i]?.id).filter(Boolean) : []
@@ -327,7 +358,7 @@ export default function App() {
   const empty = !project?.frames.length
   return <div className="app-shell">
     <header className="app-header">
-      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.6</span></a>
+      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.7</span></a>
       <div className="header-center"><span className="live-dot"/>本地工作空间<span className="slash">/</span><span>{project?.name || '新的创作，从这里开始'}</span></div>
       <div className="header-actions"><button className="icon-btn" title="使用说明" aria-label="使用说明" onClick={() => setModal('help')}><CircleHelp size={17}/></button>
         <button className="btn secondary" onClick={() => setModal('import')} disabled={busy}><Plus size={16}/>导入素材</button>
@@ -411,6 +442,7 @@ export default function App() {
               <button aria-label="切换时间轴大小" title="切换时间轴大小" onClick={() => setFilmstripSize(v => v === 'large' ? 'small' : 'large')}><Grid2X2 size={14}/></button></div></div>
           {!empty && <FrameControls project={project!} current={current} selection={selection} disabled={busy || !!pending.length}
             onReplace={()=>{setPlaying(false);setModal('replace')}}
+            onPropagate={()=>{setPlaying(false);setBrush(null);setPropagationReport(null);setModal('propagate')}}
             onEdit={editFrames} onCheck={()=>{setPlaying(false);setModal('check')}}/>}
           <div className={`filmstrip ${filmstripSize}`}>
             {project?.frames.map((f,i) => <button key={f.id} className={`frame-tile ${selection.includes(i) ? 'selected' : ''} ${current === i ? 'current' : ''} ${!f.enabled ? 'excluded' : ''}`}
@@ -493,6 +525,9 @@ export default function App() {
     {download && !jobId && <div className="download-card"><span className="export-icon"><Check size={20}/></span><div><b>动画资源已打包</b><small>PNG · 图集 · Godot 4 工程</small></div><a className="btn primary" href={download} download><Download size={15}/>下载 ZIP</a><button className="icon-btn" onClick={() => setDownload(undefined)} aria-label="关闭导出结果"><X size={15}/></button></div>}
     {modal==='replace'&&project&&frame&&<ReplaceFrame project={project} current={current} busy={busy}
       onClose={()=>setModal(null)} onReplace={replaceFrame} onReset={resetReplacement}/>}
+    {modal==='propagate'&&project&&frame&&<PropagationDialog project={project} current={current} selection={selection} busy={busy}
+      report={activePropagation} onClose={()=>setModal(null)} onInvalidate={()=>setPropagationReport(null)}
+      onPreview={previewPropagation} onApply={applyPropagation} onClear={clearPropagation}/>}
     {modal === 'assets' && project && <AssetPanel project={project} current={current} selection={selection} busy={busy} onClose={()=>setModal(null)}
       onApply={body=>perform(async()=>{await begin(`/projects/${project.id}/process`,body);setModal(null);setPreview(undefined);setBrush(null)})}/>}
     {modal === 'export' && project && <ExportDialog project={project} busy={busy} onClose={()=>setModal(null)}

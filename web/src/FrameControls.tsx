@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, ArrowLeftRight, Copy, Timer, Trash2, ScanSearch, ImagePlus } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowLeftRight, Copy, Timer, Trash2, ScanSearch, ImagePlus, Waypoints } from 'lucide-react'
 import type { EditOperation, Project } from './types'
 
 type Props = {
@@ -7,8 +7,9 @@ type Props = {
   onEdit: (operation: EditOperation, body?: { order?: number[]; duration?: number }) => void
   onCheck: () => void
   onReplace:()=>void
+  onPropagate:()=>void
 }
-export default function FrameControls({ project, current, selection, disabled, onEdit, onCheck, onReplace }: Props) {
+export default function FrameControls({ project, current, selection, disabled, onEdit, onCheck, onReplace, onPropagate }: Props) {
   const [timing, setTiming] = useState(false)
   const [milliseconds, setMilliseconds] = useState(83)
   useEffect(() => { setTiming(false) }, [project.revision])
@@ -32,6 +33,7 @@ export default function FrameControls({ project, current, selection, disabled, o
       <button disabled={disabled || !selection.length || selection.length === project.frames.length} onClick={() => onEdit('delete')} title="删除所选帧，可撤销；原始文件保留"><Trash2 size={13}/>删除帧</button>
       <button disabled={disabled || !selection.length} onClick={() => {setMilliseconds(Math.round(project.frames[current].duration*1000));setTiming(v => !v)}}><Timer size={13}/>帧时长</button>
       <button disabled={disabled} onClick={onReplace}><ImagePlus size={13}/>替换当前帧</button>
+      <button disabled={disabled} onClick={onPropagate}><Waypoints size={13}/>跨帧遮罩</button>
       <span className="edit-drag-note">同一动作内拖动排序</span>
       <button className="check-open" disabled={disabled} onClick={onCheck}><ScanSearch size={14}/>动画检查</button>
     </div>

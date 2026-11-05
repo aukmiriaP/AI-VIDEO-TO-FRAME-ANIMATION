@@ -140,6 +140,10 @@ def export_project(pid, progress, cancel, options=None, expected_revision=None):
                                   settings=project["frames"][index].get("settings") or project["settings"])
             if project["frames"][index].get("replacement"):
                 mapping[index]["replacement"] = project["frames"][index]["replacement"]
+            if project["frames"][index].get("mask_corrections"):
+                mapping[index]["mask_corrections"] = [
+                    {k:v for k,v in layer.items() if k not in ("path", "hash")}
+                    for layer in project["frames"][index]["mask_corrections"]]
             if normal_page is not None:
                 path = renderer.normal(index)
                 with Image.open(root / path) as raw:

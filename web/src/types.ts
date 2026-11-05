@@ -46,6 +46,7 @@ export type Frame = {
   settings: Settings | null; strokes: Stroke[]; label: string
   geometry?: Geometry; normal_url?: string; normal_settings?: NormalSettings
   output_override?:string; replacement?:{mode:'source'|'output';filename:string;at:string}
+  mask_corrections?: { donor_frame_id:string; donor_revision:number; accepted_ratio:number; at:string }[]
 }
 export type Action = { id: string; name: string; start: number; end: number; fps: number; loop: boolean }
 export type Project = {
@@ -83,7 +84,9 @@ export type AnalysisOptions = {
   duplicate_threshold: number; window: number; jump_k: number; min_period: number; max_period: number; loop_max_error: number
 }
 export type EditOperation = 'order' | 'duplicate' | 'reverse' | 'delete' | 'duration'
-export type Job = { id: string; project_id: string; kind: string; state: string; progress: number; message: string; result?: { url?: string; frames?: number; processed?: number; base_cached?: number; analysis?: AnalysisReport } }
+export type PropagationItem = { index:number; frame_id:string; applicable:boolean; accepted_ratio:number; accepted_pixels:number; mean_confidence:number; warnings:string[]; before_url:string; preview_url:string; rejected_url:string; original_url:string }
+export type PropagationReport = { id:string; project_id:string; revision:number; donor_index:number; donor_frame_id:string; confidence:number; warnings:string[]; items:PropagationItem[] }
+export type Job = { id: string; project_id: string; kind: string; state: string; progress: number; message: string; result?: { url?: string; frames?: number; processed?: number; base_cached?: number; analysis?: AnalysisReport; propagation?:PropagationReport } }
 export const defaults: Settings = {
   style: 'smooth', background: 'keep', key_color: '#36b859', tolerance: 35, softness: 20, despill: .5,
   size: 384, colors: 24, alpha_cutoff: 128, stabilize: 0, offset_x: 0, offset_y: 0, scale: 1,

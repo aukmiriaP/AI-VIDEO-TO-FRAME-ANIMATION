@@ -15,15 +15,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, editing, exporting, imaging, pipeline, replacing, storage as store
+from . import analysis, editing, exporting, imaging, pipeline, propagation, replacing, storage as store
 from .normals import NormalSettings
 
-app = FastAPI(title="Frame Studio", version="0.6.0")
+app = FastAPI(title="Frame Studio", version="0.7.0")
 pool = ThreadPoolExecutor(max_workers=2)
 jobs: dict[str, dict] = {}
 busy: dict[str, str] = {}
 jobs_lock = threading.RLock()
 reports: dict[str, dict] = {}
+propagation_reports: dict[str, dict] = {}
 log = logging.getLogger("frame-studio")
 
 
@@ -89,7 +90,7 @@ def submit(pid, kind, work):
 
 @app.get("/api/health")
 def health():
-    return dict(ok=True, app="frame-studio", version="0.6.0", ai_ready=imaging.model_path(store.MODELS) is not None)
+    return dict(ok=True, app="frame-studio", version="0.7.0", ai_ready=imaging.model_path(store.MODELS) is not None)
 
 
 @app.post("/api/models/install")
@@ -278,6 +279,38 @@ def reset_replacement(pid: str, index: int, request: ResetReplacementRequest):
 class FramePatch(BaseModel):
     indices: list[int] = Field(min_length=1, max_length=480)
     enabled: bool
+
+
+@app.post("/api/projects/{pid}/mask-propagation/preview")
+def propagation_preview(pid: str, request: propagation.PreviewRequest):
+    def work(update, cancel):
+        report = propagation.preview(pid, request, update, cancel)
+        with jobs_lock:
+            if len(propagation_reports) >= 32:
+                propagation_reports.pop(next(iter(propagation_reports)))
+            propagation_reports[report["id"]] = report
+        return {"propagation": propagation.public_report(report)}
+    store.read(pid)
+    return submit(pid, "propagation-preview", work)
+
+
+@app.post("/api/projects/{pid}/mask-propagation/apply")
+def propagation_apply(pid: str, request: propagation.ApplyRequest):
+    def work(update, cancel):
+        with jobs_lock:
+            report = propagation_reports.get(request.report_id)
+        if report is None:
+            raise ValueError("传播预览已清除或服务已重启，请重新预览")
+        return propagation.apply(pid, report, request, update, cancel)
+    store.read(pid)
+    return submit(pid, "propagation", work)
+
+
+@app.post("/api/projects/{pid}/frames/{index}/mask-propagation/clear")
+def propagation_clear(pid: str, index: int, request: ResetReplacementRequest):
+    store.read(pid)
+    return submit(pid, "propagation", lambda update, cancel: propagation.clear(
+        pid, index, request.expected_revision, request.expected_frame_id, update, cancel))
 
 
 @app.patch("/api/projects/{pid}/frames")

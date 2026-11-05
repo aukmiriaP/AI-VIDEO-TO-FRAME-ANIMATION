@@ -45,7 +45,7 @@ export default function ReplaceFrame(p:Props){
     <label className="form-field"><span>选择替换图片 · 必须 {expected?.join(' × ')||'先应用处理'} px</span><input aria-label="单帧替换图片" type="file" accept=".png,.jpg,.jpeg,.webp" disabled={p.busy} onChange={e=>setFile(e.target.files?.[0])}/></label>
     {url&&<div className="replace-preview checker"><img src={url} alt="待替换图片预览"/></div>}
     {size&&<p className={matching?'hint':'inline-error'}>{file?.name} · {size.join(' × ')} px{!matching?' · 尺寸不匹配，请保持对应画布尺寸。':''}</p>}
-    {mode==='source'&&frame.strokes.length>0&&<label className="check-field"><input aria-label="替换保留遮罩笔迹" type="checkbox" checked={keep} disabled={p.busy} onChange={e=>setKeep(e.target.checked)}/>保留已有 {frame.strokes.length} 笔遮罩修订（默认清除）</label>}
+    {mode==='source'&&(frame.strokes.length>0||!!frame.mask_corrections?.length)&&<label className="check-field"><input aria-label="替换保留遮罩笔迹" type="checkbox" checked={keep} disabled={p.busy} onChange={e=>setKeep(e.target.checked)}/>保留已有 {frame.strokes.length} 笔及 {frame.mask_corrections?.length||0} 层传播修订（默认清除）</label>}
     {mode==='output'&&p.project.style==='pixel'&&<p className="hint">像素成品请自行保持网格与共用色板；成品覆盖保留你上传的颜色和透明度。</p>}
     {frame.output_override&&<p className="hint">当前帧已有成品覆盖。解除后恢复原始帧的处理结果；操作可撤销。</p>}
     {error&&<p className="inline-error" role="alert">{error}</p>}

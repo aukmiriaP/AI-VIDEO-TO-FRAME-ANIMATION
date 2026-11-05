@@ -153,23 +153,53 @@ def remove_background(image: Image.Image, settings: Settings, model_dir: Path) -
 def brush_alpha(image: Image.Image, source: Image.Image, strokes: list[dict]) -> Image.Image:
     arr = np.array(image)
     original = np.array(source.convert("RGBA"))
-    w, h = image.size
     for raw in strokes:
-        stroke = Stroke(**raw)
-        mask = Image.new("L", (w, h))
-        draw = ImageDraw.Draw(mask)
-        r = max(1, stroke.radius * min(w, h))
-        points = [(max(0, min(1, x)) * (w - 1), max(0, min(1, y)) * (h - 1))
-                  for x, y in stroke.points]
-        if len(points) > 1:
-            draw.line(points, fill=255, width=max(1, round(2 * r)))
-        for x, y in points:
-            draw.ellipse((x-r, y-r, x+r, y+r), fill=255)
-        take = np.asarray(mask) > 0
-        if stroke.mode == "erase":
+        take = rasterize_stroke(image.size, raw) > 0
+        if raw["mode"] == "erase":
             arr[take, 3] = 0
         else:
             arr[take] = original[take]
+    return Image.fromarray(arr)
+
+
+def rasterize_stroke(size, raw):
+    w, h = size
+    stroke = Stroke(**raw)
+    mask = Image.new("L", (w, h))
+    draw = ImageDraw.Draw(mask)
+    r = max(1, stroke.radius * min(w, h))
+    points = [(max(0, min(1, x)) * (w-1), max(0, min(1, y)) * (h-1)) for x, y in stroke.points]
+    if len(points) > 1:
+        draw.line(points, fill=255, width=max(1, round(2*r)))
+    for x, y in points:
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=255)
+    return np.asarray(mask)
+
+
+def stroke_masks(size, strokes):
+    """Ordered manual intent, including restores that do not change source alpha."""
+    w, h = size
+    erase = np.zeros((h, w), np.uint8)
+    restore = np.zeros_like(erase)
+    for raw in strokes:
+        take = rasterize_stroke(size, raw) > 0
+        if raw["mode"] == "erase":
+            erase[take], restore[take] = 255, 0
+        else:
+            restore[take], erase[take] = 255, 0
+    return erase, restore
+
+
+def apply_mask_corrections(image, source, layers):
+    arr = np.array(image.convert("RGBA"))
+    original = np.asarray(source.convert("RGBA"))
+    for layer in layers:
+        if layer.size != image.size:
+            raise ValueError("传播修订尺寸与原始帧不匹配，请清除传播修订。")
+        mask = np.asarray(layer)
+        arr[mask[..., 0] > 127, 3] = 0
+        take = mask[..., 1] > 127
+        arr[take] = original[take]
     return Image.fromarray(arr)
 
 
@@ -210,9 +240,10 @@ def canvas_size(source_size, settings: Settings, options: AssetOptions):
 
 
 def prepare_geometry(source: Image.Image, settings: Settings, strokes: list[dict],
-                     model_dir: Path, options: AssetOptions):
+                     model_dir: Path, options: AssetOptions, corrections=()):
     from . import styling
     result = refine_matte(remove_background(source, settings, model_dir), source, settings)
+    result = apply_mask_corrections(result, source, corrections)
     result = brush_alpha(result, source, strokes)
     resize = (lambda im, size: styling.sample_rgba(im, size, settings.pixel_sampling)) if settings.style == "pixel" else resize_rgba
     result = resize(result, fit_size(source.size, settings.size))
