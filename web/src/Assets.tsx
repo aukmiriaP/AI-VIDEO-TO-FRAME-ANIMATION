@@ -90,6 +90,8 @@ export function ExportDialog({project,busy,onClose,onExport}:{project:Project;bu
       <Numeric label="边缘扩边（px）" value={options.extrude} max={32} disabled={busy} onChange={v=>change('extrude',v)}/>
     </div><label className="form-field"><span>文件名前缀</span><input aria-label="文件名前缀" value={options.prefix} maxLength={40} pattern="[a-zA-Z0-9_\-]*" disabled={busy} onChange={e=>change('prefix',e.target.value)}/></label>
     <p className="hint">前缀使用英文字母、数字、下划线或连字符。扩边复制边缘像素，不能超过留白；多余留白保持透明。</p>
+    <label className="check-field"><input aria-label="导出法线与打光示例" type="checkbox" checked={options.include_normals} disabled={busy} onChange={e=>change('include_normals',e.target.checked)}/>导出法线与打光示例</label>
+    <p className="hint">配对法线图集与颜色图集共用布局；缺失法线按已保存参数生成。灯光不烘焙到颜色帧。</p>
     <h3>导出动作</h3><label className="check-field"><input type="checkbox" checked={options.action_ids===null} disabled={busy} onChange={e=>change('action_ids',e.target.checked?null:[])}/>全部动作</label>
     <div className="export-action-list">{project.actions.map(a=><label className="check-field" key={a.id}><input type="checkbox" disabled={busy||options.action_ids===null} checked={options.action_ids===null||options.action_ids.includes(a.id)} onChange={e=>change('action_ids',e.target.checked?[...(options.action_ids||[]),a.id]:(options.action_ids||[]).filter(id=>id!==a.id))}/>{a.name} · {a.end-a.start+1} 帧</label>)}</div>
     </div><div className="asset-preview"><h3>图集布局预览</h3>{spec&&plan?<><svg className="atlas-layout" viewBox={`0 0 ${spec.size.join(' ')}`} role="img" aria-label="图集帧矩形布局">

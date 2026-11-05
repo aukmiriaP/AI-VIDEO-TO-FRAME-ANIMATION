@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Frame, Geometry, Settings, Stroke } from './types'
+import type { Frame, Geometry, Settings, Stroke, Light, LightMode, LightingPair } from './types'
+import { LightingRenderer } from './lighting'
 
 type Props = {
   index: number; frame: Frame; settings: Settings; preview?: string; view: 'result' | 'original' | 'compare'
   background: string; zoom: number; brush: 'erase' | 'restore' | null; radius: number
   pending: Stroke[]; onStroke: (stroke: Stroke) => void; playing: boolean
   previewGeometry?: Geometry
+  lightingMode:LightMode; light:Light; lightingPair?:LightingPair; onLight:(light:Light)=>void
+  prefetch?:string[]
+  normalDraftPreview?:boolean
 }
 export default function Stage(p: Props) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -14,6 +18,10 @@ export default function Stage(p: Props) {
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [wipe, setWipe] = useState(.5)
   const [tick, setTick] = useState(0)
+  const [lightError, setLightError] = useState('')
+  const gpu = useRef<LightingRenderer | null>(null)
+  const draggingLight = useRef(false)
+  const lighting = p.view === 'result' && p.lightingMode !== 'off'
   const geometry = useRef({ x: 0, y: 0, w: 1, h: 1, cw: 1, ch: 1, sx: 1, sy: 1, dx: 0, dy: 0 })
   const invalidate = () => setTick(t => t + 1)
   useEffect(() => {
@@ -23,6 +31,7 @@ export default function Stage(p: Props) {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  useEffect(()=>()=>{gpu.current?.dispose();gpu.current=null},[])
   const get = useCallback((src: string) => {
     if (images.current.has(src)) return images.current.get(src)!
     const image = new Image()
@@ -35,6 +44,7 @@ export default function Stage(p: Props) {
     }
     return image
   }, [])
+  useEffect(()=>{p.prefetch?.forEach(get)},[p.prefetch,get])
   useEffect(() => {
     const c = canvas.current
     if (!c || !size.w) return
@@ -42,9 +52,9 @@ export default function Stage(p: Props) {
     c.width = Math.round(size.w * dpr); c.height = Math.round(size.h * dpr)
     const ctx = c.getContext('2d')!
     ctx.scale(dpr, dpr)
-    const result = get(p.preview || p.frame.output_url || p.frame.original_url)
+    const result = get((lighting ? p.lightingPair?.url : p.preview) || p.frame.output_url || p.frame.original_url)
     const original = get(p.frame.original_url)
-    const meta = p.previewGeometry || p.frame.geometry
+    const meta = (lighting ? p.lightingPair?.geometry : p.previewGeometry) || p.frame.geometry
     const processed = !!(p.preview || p.frame.output_url)
     const originalView = p.view === 'original'
     const w = originalView || !processed ? p.frame.width : meta?.canvas[0] || result.naturalWidth || p.frame.width
@@ -76,7 +86,19 @@ export default function Stage(p: Props) {
     }
     if (p.view === 'original') draw(original)
     else {
-      draw(result)
+      if(lighting){
+        const normal=p.lightingPair ? get(p.lightingPair.normal_url) : null
+        if(normal?.complete && normal.naturalWidth && result.complete && result.naturalWidth){
+          if(p.lightingMode==='normal')draw(normal)
+          else{
+            try{
+              gpu.current ||= new LightingRenderer()
+              ctx.drawImage(gpu.current.render(result,normal,p.light,p.settings.style==='pixel'),x,y,rect.w,rect.h)
+              setLightError('')
+            }catch(e){setLightError((e as Error).message)}
+          }
+        }
+      }else draw(result)
       if (p.view === 'compare') {
         ctx.save(); ctx.beginPath(); ctx.rect(x + rect.w*wipe, y, rect.w*(1-wipe), rect.h); ctx.clip()
         draw(original, true); ctx.restore()
@@ -113,7 +135,15 @@ export default function Stage(p: Props) {
       ctx.stroke()
     }
     ctx.restore()
-  }, [p.frame, p.settings, p.preview, p.previewGeometry, p.view, p.background, p.zoom, p.pending, size, wipe, tick, get])
+    if(lighting && p.lightingMode==='lit'){
+      const lx=x+p.light.x*rect.w,ly=y+p.light.y*rect.h
+      ctx.strokeStyle=p.light.color;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(lx,ly,7,0,Math.PI*2);ctx.stroke()
+      for(let i=0;i<8;i++){
+        const a=i*Math.PI/4;ctx.beginPath();ctx.moveTo(lx+11*Math.cos(a),ly+11*Math.sin(a))
+        ctx.lineTo(lx+15*Math.cos(a),ly+15*Math.sin(a));ctx.stroke()
+      }
+    }
+  }, [p.frame, p.settings, p.preview, p.previewGeometry, p.view, p.background, p.zoom, p.pending, size, wipe, tick, get, lighting, p.lightingMode, p.lightingPair, p.light])
 
   function point(e: React.PointerEvent): [number, number] {
     const r = canvas.current!.getBoundingClientRect(), g = geometry.current
@@ -121,11 +151,21 @@ export default function Stage(p: Props) {
       ((e.clientY-r.top-g.y)/g.h*g.ch-g.dy)/g.sy/Math.max(1,p.frame.height-1)]
   }
   function end() {
+    draggingLight.current=false
     if (activeStroke.current) { p.onStroke(activeStroke.current); activeStroke.current = null; invalidate() }
   }
-  return <div className={`stage-surface ${p.brush ? 'painting' : ''}`}>
+  function moveLight(e:React.PointerEvent){
+    const r=canvas.current!.getBoundingClientRect(),g=geometry.current
+    p.onLight({...p.light,x:Math.max(0,Math.min(1,(e.clientX-r.left-g.x)/g.w)),
+      y:Math.max(0,Math.min(1,(e.clientY-r.top-g.y)/g.h))})
+  }
+  return <div className={`stage-surface ${p.brush ? 'painting' : ''} ${lighting?'lighting':''}`}>
     <canvas ref={canvas} aria-label="动画画布，可用擦除和恢复画笔修正透明遮罩"
       onPointerDown={e => {
+        if(lighting && p.lightingMode==='lit'){
+          e.currentTarget.setPointerCapture(e.pointerId);draggingLight.current=true;moveLight(e);return
+        }
+        if(lighting)return
         if (!p.brush || p.playing || p.view !== 'result') return
         const xy = point(e)
         if (xy.some(v => v < 0 || v > 1)) return
@@ -133,12 +173,16 @@ export default function Stage(p: Props) {
         activeStroke.current = { mode: p.brush, radius: p.radius, points: [xy] }; invalidate()
       }}
       onPointerMove={e => {
+        if(draggingLight.current){moveLight(e);return}
         if (activeStroke.current && activeStroke.current.points.length < 1000) {
           activeStroke.current.points.push(point(e)); invalidate()
         }
       }} onPointerUp={end} onPointerCancel={end} />
     <div className="stage-coordinate mono">FRAME {String(p.index+1).padStart(3, '0')} <span> / {p.settings.style === 'pixel' ? 'PIXEL' : 'RGBA'}</span></div>
     {p.preview && <span className="preview-flag">参数预览 · 尚未应用</span>}
+    {lighting&&p.normalDraftPreview&&<span className="preview-flag">法线预览 · 尚未应用</span>}
+    {lighting&&!p.lightingPair&&<span className="light-canvas-message">点击「预览法线」或「生成法线」查看效果</span>}
+    {lighting&&p.lightingMode==='lit'&&lightError&&<span className="light-canvas-message" role="alert">{lightError}</span>}
     {(p.previewGeometry || p.frame.geometry)?.warnings.length ? <span className="stage-warning">{(p.previewGeometry || p.frame.geometry)!.warnings.join(' ')}</span> : null}
     {p.view === 'compare' && <div className="wipe-control"><span>处理后</span><input aria-label="原图对照分界" type="range" min={0} max={1} step={.01} value={wipe} onChange={e => setWipe(+e.target.value)}/><span>原始帧</span></div>}
   </div>

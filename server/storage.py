@@ -45,12 +45,16 @@ def read(pid):
 def defaults(project):
     from .imaging import AssetOptions, Settings
     from .exporting import ExportOptions
+    from .normals import NormalSettings
     project["settings"] = Settings(**project["settings"]).model_dump()
     project["asset_options"] = AssetOptions(**project.get("asset_options", {})).model_dump()
     project["export_options"] = ExportOptions(**project.get("export_options", {})).model_dump()
+    project["normal_settings"] = NormalSettings(**project.get("normal_settings", {})).model_dump()
     for frame in project["frames"]:
         if frame.get("settings"):
             frame["settings"] = Settings(**frame["settings"]).model_dump()
+        if frame.get("normal_settings"):
+            frame["normal_settings"] = NormalSettings(**frame["normal_settings"]).model_dump()
     return project
 
 
@@ -94,7 +98,7 @@ def public(project):
         if frame["enabled"]:
             speed = next((a["fps"] for a in p["actions"] if a["start"] <= i <= a["end"]), p["fps"])
             position += frame["duration"] * p["fps"] / speed
-        for key in ("original", "output", "thumb"):
+        for key in ("original", "output", "thumb", "normal"):
             if frame.get(key):
                 frame[key + "_url"] = f'/media/{p["id"]}/{frame[key]}'
     return p

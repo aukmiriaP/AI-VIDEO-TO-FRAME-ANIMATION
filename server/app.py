@@ -16,8 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import analysis, editing, exporting, imaging, pipeline, storage as store
+from .normals import NormalSettings
 
-app = FastAPI(title="Frame Studio", version="0.4.0")
+app = FastAPI(title="Frame Studio", version="0.5.0")
 pool = ThreadPoolExecutor(max_workers=2)
 jobs: dict[str, dict] = {}
 busy: dict[str, str] = {}
@@ -88,7 +89,7 @@ def submit(pid, kind, work):
 
 @app.get("/api/health")
 def health():
-    return dict(ok=True, app="frame-studio", version="0.4.0", ai_ready=imaging.model_path(store.MODELS) is not None)
+    return dict(ok=True, app="frame-studio", version="0.5.0", ai_ready=imaging.model_path(store.MODELS) is not None)
 
 
 @app.post("/api/models/install")
@@ -314,6 +315,31 @@ def project_operation(pid, work):
     finally:
         with jobs_lock:
             busy.pop(pid, None)
+
+
+class NormalPreviewRequest(BaseModel):
+    index: int = Field(ge=0)
+    settings: NormalSettings | None = None
+    expected_revision: int
+
+
+class NormalApplyRequest(BaseModel):
+    settings: NormalSettings
+    indices: list[int] | None = Field(default=None, max_length=480)
+    expected_revision: int
+
+
+@app.post("/api/projects/{pid}/normals/preview")
+def preview_normals(pid: str, request: NormalPreviewRequest):
+    return project_operation(pid, lambda: pipeline.normal_preview(
+        pid, request.index, request.settings, request.expected_revision))
+
+
+@app.post("/api/projects/{pid}/normals")
+def generate_normals(pid: str, request: NormalApplyRequest):
+    store.read(pid)
+    return submit(pid, "normals", lambda update, cancel: pipeline.apply_normals(
+        pid, request.indices, request.settings, request.expected_revision, update, cancel))
 
 
 @app.post("/api/projects/{pid}/edit")

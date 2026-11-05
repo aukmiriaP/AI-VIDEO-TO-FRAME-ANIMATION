@@ -36,7 +36,7 @@ export type AssetEdits = Pick<Settings, 'align_mode' | 'bounds_threshold' | 'mat
 export type AssetOptions = { canvas_width: number; canvas_height: number; pivot_x: number; pivot_y: number }
 export type Geometry = { canvas: [number, number]; source: [number, number]; scaled: [number, number]; scale: [number, number]; offset: [number, number]; pivot: [number, number]; bounds: number[] | null; clipped_pixels: number; warnings: string[] }
 export type Preview = { url: string; geometry: Geometry }
-export type ExportOptions = { columns: number; padding: number; extrude: number; page_size: number; prefix: string; action_ids: string[] | null }
+export type ExportOptions = { columns: number; padding: number; extrude: number; page_size: number; prefix: string; action_ids: string[] | null; include_normals: boolean }
 export type ExportLayout = { canvas: [number, number]; pivot: [number, number]; columns: number; frames: number; pages: { file: string; size: [number, number]; cells: { index: number; rect: number[] }[] }[]; actions: (Action & { frames: number[] })[] }
 export type Stroke = { mode: 'erase' | 'restore'; points: [number, number][]; radius: number }
 export type Frame = {
@@ -44,18 +44,25 @@ export type Frame = {
   width: number; height: number; time: number; duration: number; enabled: boolean
   source_time: number; timeline_time: number
   settings: Settings | null; strokes: Stroke[]; label: string
-  geometry?: Geometry
+  geometry?: Geometry; normal_url?: string; normal_settings?: NormalSettings
 }
 export type Action = { id: string; name: string; start: number; end: number; fps: number; loop: boolean }
 export type Project = {
   id: string; name: string; fps: number; style: 'smooth' | 'pixel'; frames: Frame[]
   settings: Settings; width: number; height: number; actions: Action[]; palette: number[][] | null
   asset_options: AssetOptions; export_options: ExportOptions
+  normal_settings: NormalSettings
   can_undo: boolean; revision: number; demo?: boolean; import_status: string; import_error?: string
   last_run?: { processed: number; base_cached: number; base_computed: number }
   job_id?: string
   edit_result?: { selected_ids: string[]; updated_frames: number }
 }
+export type NormalSettings = { method: 'bevel' | 'luma' | 'mix'; strength: number; bevel: number; smooth: number; detail: number; invert: boolean; flip_y: boolean }
+export type LightingPair = Preview & { normal_url: string; frame_id: string; revision: number }
+export type Light = { x: number; y: number; height: number; intensity: number; range: number; ambient: number; color: string }
+export type LightMode = 'off' | 'lit' | 'normal'
+export const normalDefaults: NormalSettings = { method:'bevel', strength:2, bevel:6, smooth:1, detail:.35, invert:false, flip_y:false }
+export const lightDefaults: Light = { x:.3, y:.25, height:.3, intensity:1.5, range:2, ambient:.3, color:'#fff1df' }
 export type ProjectSummary = Pick<Project, 'id' | 'name' | 'style' | 'import_status'> & { frame_count: number; job_id?: string }
 export type Duplicate = { id: string; kind: 'consecutive' | 'return'; action_id: string; action_name: string; indices: number[]; keep: number; score: number; duration: number }
 export type Suspect = { id: string; frame_id: string; index: number; previous: number; next: number; action_name: string; left: number; right: number; outer: number; threshold: number; reason: string }

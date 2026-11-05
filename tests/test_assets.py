@@ -157,7 +157,7 @@ def test_atlas_layout_subset_pages_padding_alpha_pivot_and_option_persistence():
         assert np.asarray(atlas)[:3,:,3].max()==0  # remainder of margin transparent
     assert "offset = Vector2(16.0, -25.6)" in z.read("preview.tscn").decode()
     after=client.get(f"/api/projects/{pid}").json()
-    assert after["export_options"]==options
+    assert after["export_options"]==options|{"include_normals":False}
     assert client.post(f"/api/projects/{pid}/undo").json()["export_options"]["prefix"]==""
 
 

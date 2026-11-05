@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from . import imaging as img, storage as store
+from .normals import NORMAL_VERSION, NormalSettings, generate
 
 MAX_FRAMES = 480
 
@@ -199,7 +200,64 @@ class Renderer:
                 result = img.quantize(result,palette,settings)
             result.save(target)
             img.thumbnail(result).save(self.root / "thumbs" / f"{final_key}.png")
+        if self.project["frames"][index].get("normal"):
+            self.normal(index)
         return relative, f"thumbs/{final_key}.png"
+
+    def normal(self, index, settings=None):
+        current, base_key = self.base(index)
+        frame = self.project["frames"][index]
+        settings = settings or NormalSettings(**(frame.get("normal_settings") or self.project["normal_settings"]))
+        style = frame_settings(self.project, index)
+        cell = style.pixel_cell if style.style == "pixel" else 1
+        key = img.fingerprint("normal", NORMAL_VERSION, base_key, cell, settings.model_dump())
+        relative = f"derived/normal-{key}.png"
+        if not (self.root / relative).exists():
+            generate(current, settings, cell).save(self.root / relative)
+        frame["normal"] = relative
+        return relative
+
+
+def normal_preview(pid, index, settings=None, expected_revision=None):
+    from .editing import check_revision
+    project = store.read(pid)
+    if expected_revision is not None:
+        check_revision(project, expected_revision)
+    if not 0 <= index < len(project["frames"]):
+        raise ValueError("无效帧")
+    renderer = Renderer(project)
+    renderer.palette()
+    color, _ = renderer.output(index)
+    normal = renderer.normal(index, settings)
+    frame = project["frames"][index]
+    return dict(url=f"/media/{pid}/{color}", normal_url=f"/media/{pid}/{normal}",
+                geometry=frame["geometry"], frame_id=frame["id"], revision=project["revision"])
+
+
+def apply_normals(pid, indices, settings, expected_revision, progress, cancel):
+    from .editing import check_revision
+    project = store.read(pid)
+    check_revision(project, expected_revision)
+    ids = sorted(set(range(len(project["frames"])) if indices is None else indices))
+    if not ids or any(i < 0 or i >= len(project["frames"]) for i in ids):
+        raise ValueError("请选择有效的帧范围")
+    store.checkpoint(project)
+    if len(ids) == len(project["frames"]):
+        project["normal_settings"] = settings.model_dump()
+    renderer = Renderer(project, progress, cancel)
+    renderer.palette()
+    for done, i in enumerate(ids):
+        progress(done/len(ids), f"正在生成法线 {done+1} / {len(ids)}")
+        frame = project["frames"][i]
+        frame["normal_settings"] = settings.model_dump()
+        if not frame.get("output"):
+            color, thumb = renderer.output(i)
+            frame.update(output=color, thumb=thumb)
+        renderer.normal(i)
+    if cancel():
+        raise InterruptedError("已取消法线生成，保留上一版结果")
+    store.write(project)
+    return dict(processed=len(ids))
 
 
 def configure(project, ids, settings, asset_options=None, asset_patch=None, settings_patch=None):

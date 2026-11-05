@@ -58,7 +58,22 @@ func verify_export():
             return
         for i in range(action["frames"].size()):
             var info = manifest["frames"][str(int(action["frames"][i]))]
-            var texture = animations.get_frame_texture(name, i) as AtlasTexture
+            var raw_texture = animations.get_frame_texture(name, i)
+            var texture: AtlasTexture
+            if manifest.has("normal_pages"):
+                var material = raw_texture as CanvasTexture
+                if material == null or material.normal_texture == null:
+                    push_error("Missing paired normal CanvasTexture")
+                    quit(1)
+                    return
+                texture = material.diffuse_texture as AtlasTexture
+                var normal = material.normal_texture as AtlasTexture
+                if normal == null or texture == null or normal.region != texture.region:
+                    push_error("Normal atlas region differs from diffuse")
+                    quit(1)
+                    return
+            else:
+                texture = raw_texture as AtlasTexture
             var rect = info["rect"]
             if texture == null or texture.region != Rect2(rect[0],rect[1],rect[2],rect[3]):
                 push_error("Wrong atlas rectangle")
@@ -68,6 +83,10 @@ func verify_export():
                 push_error("Wrong frame duration")
                 quit(1)
                 return
+    if manifest.has("normal_pages") and (not scene.get_node("Light") is PointLight2D or not scene.get_node("Ambient") is CanvasModulate):
+        push_error("Missing lighting example nodes")
+        quit(1)
+        return
     # Count frame_changed events; final frame may equal initial after a loop.
     var changes = [0]
     sprite.frame_changed.connect(func(): changes[0] += 1)
