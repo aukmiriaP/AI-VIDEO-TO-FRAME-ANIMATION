@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Aperture, ArrowDownToLine, ArrowLeftRight, ArrowRight, Check, ChevronLeft, ChevronRight,
+import { ArrowDownToLine, ArrowLeftRight, ArrowRight, Check, ChevronLeft, ChevronRight,
   CircleHelp, Clapperboard, Download, Eraser, Film, FolderOpen, Grid2X2, ImagePlus, Layers3,
   LoaderCircle, Maximize2, Minus, MousePointer2, Paintbrush, Pause, Play, Plus, RotateCcw, Scissors,
-  Settings2, SkipBack, SkipForward, Sparkles, Upload, WandSparkles, X, EyeOff, CheckCircle2 } from 'lucide-react'
+  Settings2, SkipBack, SkipForward, Sparkles, SunMoon, Upload, WandSparkles, X, EyeOff, CheckCircle2 } from 'lucide-react'
 import { api, json } from './api'
 import Stage from './Stage'
 import FrameControls from './FrameControls'
@@ -13,6 +13,7 @@ import AnimationCheck from './AnimationCheck'
 import { AssetPanel, ExportDialog } from './Assets'
 import StyleControls, { STYLE_FIELDS } from './StyleControls'
 import LightingPanel from './LightingPanel'
+import { AppearanceDialog, useAppearance } from './Appearance'
 import { defaults, normalDefaults, lightDefaults } from './types'
 import type { Action, AnalysisReport, EditOperation, Job, Preview, Project, ProjectSummary, Settings, Stroke, NormalSettings, Light, LightMode, LightingPair, OnionOptions, PropagationReport } from './types'
 import './style.css'
@@ -28,6 +29,7 @@ function Slider({ label, value, min, max, step = 1, onChange, suffix = '', disab
 }
 
 export default function App() {
+  const appearance = useAppearance()
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [current, setCurrent] = useState(0)
@@ -52,7 +54,7 @@ export default function App() {
   const [brush, setBrush] = useState<'erase' | 'restore' | null>(null)
   const [radius, setRadius] = useState(.035)
   const [pending, setPending] = useState<Stroke[]>([])
-  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | 'replace' | 'propagate' | null>(null)
+  const [modal, setModal] = useState<'import' | 'action' | 'help' | 'check' | 'assets' | 'export' | 'replace' | 'propagate' | 'appearance' | null>(null)
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null)
   const [propagationReport,setPropagationReport]=useState<PropagationReport|null>(null)
   const activePropagation=propagationReport?.project_id===project?.id&&propagationReport?.revision===project?.revision&&propagationReport?.donor_frame_id===project?.frames[current]?.id?propagationReport:null
@@ -358,9 +360,9 @@ export default function App() {
   const empty = !project?.frames.length
   return <div className="app-shell">
     <header className="app-header">
-      <a className="brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Aperture size={24}/></span><b>帧序</b><span className="brand-en">FRAME STUDIO</span><span className="version">0.7</span></a>
-      <div className="header-center"><span className="live-dot"/>本地工作空间<span className="slash">/</span><span>{project?.name || '新的创作，从这里开始'}</span></div>
-      <div className="header-actions"><button className="icon-btn" title="使用说明" aria-label="使用说明" onClick={() => setModal('help')}><CircleHelp size={17}/></button>
+      <div className="document-heading"><strong>{project?.name || '未打开序列'}</strong><span>{empty ? '导入素材以开始编辑' : `${project!.frames.length} 帧 · ${project!.fps} fps`}</span></div>
+      <div className="header-actions"><button className="icon-btn" title="界面外观" aria-label="界面外观" onClick={() => setModal('appearance')}><SunMoon size={17}/></button>
+        <button className="icon-btn" title="使用说明" aria-label="使用说明" onClick={() => setModal('help')}><CircleHelp size={17}/></button>
         <button className="btn secondary" onClick={() => setModal('import')} disabled={busy}><Plus size={16}/>导入素材</button>
         <button className="btn secondary" disabled={busy || empty || !!pending.length} onClick={()=>{setPlaying(false);setModal('assets')}}><Layers3 size={16}/>资产整理</button>
         <button className="btn primary" disabled={busy || empty || !!pending.length} onClick={() => {setPlaying(false);setModal('export')}}><ArrowDownToLine size={16}/>导出动画</button></div>
@@ -381,7 +383,7 @@ export default function App() {
             <button className={`action-item ${!activeAction ? 'active' : ''}`} onClick={() => { setActiveAction(null); select(0) }}><Layers3 size={15}/><span>完整序列</span><small>{project!.frames.length}</small></button>
             {project!.actions.map(a => <button key={a.id} className={`action-item ${activeAction === a.id ? 'active' : ''}`} onClick={() => chooseAction(a)}><span className="action-dot"/><span>{a.name}</span><small>{number(a.start)}–{number(a.end)}</small></button>)}
           </div>
-          <div className="source-note"><span className="eyebrow">SOURCE INFO</span><div>{project!.width} × {project!.height}<span>RGBA</span></div><div>{project!.frames.length} 帧<span>{fmt(duration)}</span></div>
+          <div className="source-note"><span className="eyebrow">素材信息</span><div>{project!.width} × {project!.height}<span>RGBA</span></div><div>{project!.frames.length} 帧<span>{fmt(duration)}</span></div>
             {project!.demo && <p>内置程序绘制练习素材<br/>可用于尝试抠图与修帧</p>}</div></>}
         <div className="library-bottom"><span className="live-dot"/><span>素材与修改保存在本机</span><button className="icon-btn" title="了解保存方式" onClick={() => setModal('help')}><CircleHelp size={14}/></button></div>
       </aside>
@@ -395,10 +397,8 @@ export default function App() {
           suspended={playing||lightActive||view==='compare'} frames={ghosts}/>}
         <div className="canvas-area">
           {empty ? <div className="welcome">
-            <div className="welcome-eyebrow"><span/> VIDEO TO GAME-READY FRAMES</div>
-            <div className="welcome-art"><div className="art-frame back"/><div className="art-frame mid"/><div className="art-frame front"><Aperture size={54} strokeWidth={1}/><span>01 / ∞</span></div></div>
-            <h1>让每一帧，<br/><span>都进入创作。</span></h1>
-            <p>把 AI 视频整理成可编辑的游戏动画。<br/>从抠图、修帧，到像素与非像素资产导出。</p>
+            <h1>导入动画素材</h1>
+            <p>打开视频或图片序列，逐帧预览、修订，<br/>并导出为游戏动画资产。</p>
             {project?.import_status === 'failed' && <p className="inline-error">{project.import_error}</p>}
             <div className="welcome-actions"><button className="btn primary" disabled={busy} onClick={() => setModal('import')}><Upload size={16}/>导入视频或序列帧</button>
               <button className="btn text" disabled={busy} onClick={() => perform(() => begin('/demo'))}>试用练习素材 <ArrowRight size={16}/></button></div>
@@ -517,12 +517,13 @@ export default function App() {
         </div>
       </aside>
     </div>
-    <footer className="statusbar"><span><span className="live-dot"/>{jobId ? job?.message || '准备任务…' : loading ? '正在处理…' : '工作空间已就绪'}</span><span>FRAME STUDIO <i/> 本地创作 · 自由修订</span></footer>
+    <footer className="statusbar"><span><span className="live-dot"/>{jobId ? job?.message || '准备任务…' : loading ? '正在处理…' : '工作空间已就绪'}</span><span>素材与修改保存在本机</span></footer>
     {jobId && <div className="job-card" role="status"><LoaderCircle className="spin" size={20}/><div><strong>{job?.message || '准备任务…'}</strong><div className="progress-track"><span style={{width:`${Math.max(3,(job?.progress || 0)*100)}%`}}/></div></div><span className="mono">{Math.round((job?.progress || 0)*100)}%</span>
       {job?.kind !== 'model' && <button aria-label="取消任务" onClick={() => api(`/jobs/${jobId}/cancel`,json()).catch(e => notify(e.message,true))}><X size={16}/></button>}</div>}
     {loading && !jobId && <div className="loading-pill" role="status"><LoaderCircle size={16} className="spin"/>正在处理，请稍候…</div>}
     {toast && <div className={`toast ${toast.error ? 'error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <CircleHelp size={17}/> : <CheckCircle2 size={17}/>}<span>{toast.text}</span><button onClick={() => setToast(null)} aria-label="关闭通知"><X size={15}/></button></div>}
     {download && !jobId && <div className="download-card"><span className="export-icon"><Check size={20}/></span><div><b>动画资源已打包</b><small>PNG · 图集 · Godot 4 工程</small></div><a className="btn primary" href={download} download><Download size={15}/>下载 ZIP</a><button className="icon-btn" onClick={() => setDownload(undefined)} aria-label="关闭导出结果"><X size={15}/></button></div>}
+    {modal === 'appearance' && <AppearanceDialog mode={appearance.mode} onChange={appearance.setMode} onClose={() => setModal(null)}/>}
     {modal==='replace'&&project&&frame&&<ReplaceFrame project={project} current={current} busy={busy}
       onClose={()=>setModal(null)} onReplace={replaceFrame} onReset={resetReplacement}/>}
     {modal==='propagate'&&project&&frame&&<PropagationDialog project={project} current={current} selection={selection} busy={busy}
@@ -541,8 +542,8 @@ export default function App() {
         await acceptEdit(p);setModal(null);notify(operation==='compress' ? '连续相似帧已合并，原时长保留；可撤销恢复。' : operation==='skip' ? '所选可疑帧已跳过，可撤销恢复。' : '循环候选已设为动作，其余帧保留。')
       })}/>}
     {(modal === 'import' || modal === 'action' || modal === 'help') && <div className="modal-scrim" onClick={e => {if(e.target === e.currentTarget && !loading)setModal(null)}}><section className={`modal ${modal === 'help' ? 'help-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div className="modal-heading"><span className="eyebrow">{modal === 'import' ? 'START A SEQUENCE' : modal === 'action' ? 'DEFINE AN ACTION' : 'YOUR LOCAL WORKSPACE'}</span><button className="icon-btn" aria-label="关闭窗口" onClick={() => setModal(null)} disabled={loading}><X size={20}/></button></div>
-      <h2 id="modal-title">{modal === 'import' ? '导入，让创作开始。' : modal === 'action' ? '把选中帧设为一个动作' : '每一帧，都可以重新来过。'}</h2>
+      <div className="modal-heading"><span className="eyebrow">{modal === 'import' ? '新建序列' : modal === 'action' ? '动作片段' : '使用说明'}</span><button className="icon-btn" aria-label="关闭窗口" onClick={() => setModal(null)} disabled={loading}><X size={20}/></button></div>
+      <h2 id="modal-title">{modal === 'import' ? '导入素材' : modal === 'action' ? '创建动作片段' : '编辑与保存'}</h2>
       {modal === 'import' ? <>
         <p className="modal-intro">导入已生成的视频，或已有的透明序列帧。所有文件会复制到本地项目。</p>
         <input ref={fileInput} type="file" multiple accept="video/*,.png,.jpg,.jpeg,.webp" className="sr-only" aria-label="选择视频或序列帧" onChange={e => acceptFiles(Array.from(e.target.files || []))}/>
@@ -563,7 +564,7 @@ export default function App() {
           setProject(p);setModal(null);setActiveAction(p.actions.find(a=>a.name===actionName)?.id || null);notify('动作已保存，受影响的稳定帧已更新。')
         })}><Scissors size={15}/>保存动作</button></div>
       </> : <>
-        <p className="modal-intro">帧序将已有视频整理成游戏引擎可使用的动画资产。当前版本专注本地后处理，视频生成服务尚未接入。</p>
+        <p className="modal-intro">将已有视频整理成游戏引擎可使用的动画资产。当前版本支持本地后处理，视频生成服务尚未接入。</p>
         <ol className="help-steps"><li><Upload/><div><b>导入已有视频或序列帧</b><p>素材复制入项目，原文件保持不变。内置水母是程序绘制的练习动画。</p></div></li>
           <li><Settings2/><div><b>先预览，再应用</b><p>选风格、抠背景、统一色板。仅改当前帧时选择「选中帧」；风格和输出尺寸属于整段设置。</p></div></li>
           <li><Paintbrush/><div><b>画笔修订与局部更新</b><p>擦除背景或恢复原图，保存后仅更新当前帧和依赖它的邻帧。最近 12 次编辑可撤销。</p></div></li>

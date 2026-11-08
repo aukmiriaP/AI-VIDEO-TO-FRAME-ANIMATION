@@ -4,7 +4,9 @@
 
 这是可运行的 0.7 本地版本，支持跨帧遮罩传播、洋葱皮、外部精修后的单帧替换、本地近似法线和实时打光。视频生成 API 尚未接入，请先从外部生成工具导出视频再导入。界面和处理逻辑独立实现，没有复制 Pixelith 的代码、界面资源或模型。
 
-[非像素界面](docs/smooth.png) · [像素界面](docs/pixel.png) · [验证记录](docs/validation.md)
+[浅色界面](docs/interface-light.png) · [深色界面](docs/interface-dark.png) · [导入界面](docs/interface-empty.png) · [验证记录](docs/validation.md)
+
+界面采用简约 macOS 风格，默认浅色。顶部「界面外观」可切换浅色、深色或跟随系统，选择会在当前浏览器中保留；切换外观不会修改素材或重新处理动画。工具界面暂不显示品牌名称与标志，顶部只显示当前序列信息。
 
 ## 在这台 Mac 上使用
 

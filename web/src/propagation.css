@@ -2,15 +2,15 @@
 .propagation-dialog>.modal-close{position:absolute;right:18px;top:18px;display:flex;padding:5px;color:var(--muted)}
 .propagation-title{display:flex;gap:12px;align-items:flex-start;color:var(--accent)}
 .propagation-title h2{color:var(--text);margin:0 0 7px}.propagation-title p{margin:0}
-.propagation-source{display:flex;gap:16px;align-items:center;padding:14px;margin:20px 0;background:#222929;border:1px solid var(--line-strong);border-radius:7px}
+.propagation-source{display:flex;gap:16px;align-items:center;padding:14px;margin:20px 0;background:var(--raised);border:1px solid var(--line-strong);border-radius:7px}
 .propagation-source>.checker{width:68px;height:68px;flex-shrink:0}.propagation-source img{width:100%;height:100%;object-fit:contain}
 .propagation-source>div:nth-child(2){display:flex;flex-direction:column;gap:8px;flex:1}.propagation-source strong{font-size:13px}.propagation-source span:last-child{font-size:11px;color:var(--muted)}
 .propagation-options{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.propagation-options .form-field{flex:1;margin:0;min-width:100px}
 .propagation-options .form-field:last-child{flex:2;min-width:180px}.propagation-run{display:flex;align-items:center;gap:20px;margin:16px 0}.propagation-run .hint{flex:1}
-.propagation-options input[type=range]{padding:0;background:#393f3d}
+.propagation-options input[type=range]{padding:0;background:var(--track)}
 .propagation-result-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.propagation-result-heading strong{font-size:13px}
 .propagation-candidates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px;max-height:42vh;overflow:auto;padding:2px}
-.propagation-candidate{background:#1e2525;border:1px solid var(--line-strong);border-radius:7px;padding:12px}.propagation-candidate.chosen{border-color:#829781}
+.propagation-candidate{background:var(--raised);border:1px solid var(--line-strong);border-radius:7px;padding:12px}.propagation-candidate.chosen{border-color:var(--accent);background:var(--accent-soft)}
 .propagation-candidate-heading{display:flex;align-items:center;gap:7px;font-size:11px;flex-wrap:wrap}.propagation-candidate-heading span{color:var(--muted);font-size:10px;margin-left:auto}
 .propagation-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.propagation-pair figure,.propagation-risk{margin:0}
 .propagation-pair .checker{height:106px;border-radius:3px}.propagation-pair img{width:100%;height:100%;object-fit:contain;image-rendering:pixelated}

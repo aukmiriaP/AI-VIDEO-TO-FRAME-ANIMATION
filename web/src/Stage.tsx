@@ -28,6 +28,10 @@ export default function Stage(p: Props) {
   const geometry = useRef({ x: 0, y: 0, w: 1, h: 1, cw: 1, ch: 1, sx: 1, sy: 1, dx: 0, dy: 0 })
   const invalidate = () => setTick(t => t + 1)
   useEffect(() => {
+    window.addEventListener('appearancechange', invalidate)
+    return () => window.removeEventListener('appearancechange', invalidate)
+  }, [])
+  useEffect(() => {
     const el = canvas.current?.parentElement
     if (!el) return
     const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }))
@@ -70,11 +74,13 @@ export default function Stage(p: Props) {
     const dy = originalView || !processed ? 0 : meta?.offset[1] ?? (h-h*p.settings.scale)/2+p.settings.offset_y*h
     geometry.current = {...rect, cw:w, ch:h, sx, sy, dx, dy}
     const { x, y } = rect
-    ctx.fillStyle = p.background === 'checker' ? '#24292a' : p.background
+    const theme = getComputedStyle(document.documentElement)
+    const color = (name: string) => theme.getPropertyValue(name).trim()
+    ctx.fillStyle = p.background === 'checker' ? color('--checker-base') : p.background
     ctx.fillRect(x, y, rect.w, rect.h)
     if (p.background === 'checker') {
       ctx.save(); ctx.beginPath(); ctx.rect(x, y, rect.w, rect.h); ctx.clip()
-      ctx.fillStyle = '#2c3233'
+      ctx.fillStyle = color('--checker-cell')
       const grid = 14
       for (let yy = 0; yy < rect.h/grid; yy++) for (let xx = 0; xx < rect.w/grid; xx++)
         if ((xx + yy) % 2 === 0) ctx.fillRect(x+xx*grid, y+yy*grid, grid, grid)
@@ -105,7 +111,7 @@ export default function Stage(p: Props) {
       if (p.view === 'compare') {
         ctx.save(); ctx.beginPath(); ctx.rect(x + rect.w*wipe, y, rect.w*(1-wipe), rect.h); ctx.clip()
         draw(original, true); ctx.restore()
-        ctx.strokeStyle = '#f1cba7'; ctx.lineWidth = 1
+        ctx.strokeStyle = color('--accent'); ctx.lineWidth = 1
         ctx.beginPath(); ctx.moveTo(x+rect.w*wipe, y); ctx.lineTo(x+rect.w*wipe, y+rect.h); ctx.stroke()
       }
     }
@@ -139,14 +145,14 @@ export default function Stage(p: Props) {
       }
       ctx.restore()
     }
-    ctx.strokeStyle = '#6b71704d'; ctx.lineWidth = 1; ctx.strokeRect(x-.5, y-.5, rect.w+1, rect.h+1)
+    ctx.strokeStyle = color('--line-strong'); ctx.lineWidth = 1; ctx.strokeRect(x-.5, y-.5, rect.w+1, rect.h+1)
     if (!originalView && processed) {
       const pivot = meta?.pivot || [.5,.5]
       const px = x+pivot[0]*rect.w, py = y+pivot[1]*rect.h
-      ctx.strokeStyle = '#f1cba7'; ctx.beginPath()
+      ctx.strokeStyle = color('--accent'); ctx.beginPath()
       ctx.moveTo(px-8,py);ctx.lineTo(px+8,py);ctx.moveTo(px,py-8);ctx.lineTo(px,py+8);ctx.stroke()
     }
-    ctx.strokeStyle = '#8d95917a'
+    ctx.strokeStyle = color('--muted')
     for (const [dx, dy] of [[0, 0], [rect.w, 0], [0, rect.h], [rect.w, rect.h]]) {
       const sx = dx ? 1 : -1, sy = dy ? 1 : -1
       ctx.beginPath(); ctx.moveTo(x+dx+sx*5,y+dy); ctx.lineTo(x+dx+sx*13,y+dy)

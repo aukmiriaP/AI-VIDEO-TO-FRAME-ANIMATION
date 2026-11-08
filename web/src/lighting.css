@@ -1,12 +1,12 @@
-.lighting-tag{margin-left:auto;font:9px var(--mono);letter-spacing:1.5px;color:var(--accent)}
-.lighting-modes{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;margin:12px 0 16px}
+.lighting-tag{margin-left:auto;font:9px var(--mono);color:var(--muted)}
+.lighting-modes{display:flex;border:1px solid var(--line);border-radius:7px;padding:3px;background:var(--raised);gap:2px;overflow:hidden;margin:12px 0 16px}
 .lighting-modes button{flex:1;padding:8px 2px;border:0;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
-.lighting-modes button.active{background:#8eb9a025;color:var(--text)}
+.lighting-modes button.active{background:var(--panel);color:var(--text);border-radius:4px;box-shadow:0 1px 3px #00000012}
 .lighting-checks{display:flex;gap:12px;margin:12px 0;font-size:11px}
 .lighting-actions{display:flex;gap:6px;margin:12px 0}
 .lighting-actions .btn{padding:7px 9px;font-size:11px;flex:1;justify-content:center}
 .light-controls{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
 .light-heading{display:flex;align-items:center;justify-content:space-between;font-size:12px}
-.lighting-status{color:#f1cba7}
-.light-canvas-message{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 18px;background:#202526ed;color:#f1cba7;border:1px solid #535d57;border-radius:5px;max-width:80%;font-size:12px}
+.lighting-status{color:var(--muted)}
+.light-canvas-message{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 18px;background:var(--panel);color:var(--muted);border:1px solid var(--line-strong);border-radius:7px;max-width:80%;font-size:12px}
 .stage-surface.lighting{cursor:crosshair;touch-action:none}
